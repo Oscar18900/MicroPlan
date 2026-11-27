@@ -97,7 +97,7 @@ export function AuthScreen() {
         <div className="mt-4 rounded-3xl border border-[#E5E7F3] bg-white p-5 shadow-xs">
           <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
             {mode === 'register' ? (
-              <div>
+              <div className="mp-field">
                 <label
                   htmlFor="auth-name"
                   className="mb-1.5 block text-xs font-semibold text-[#434655]"
@@ -105,7 +105,7 @@ export function AuthScreen() {
                   Nombre completo
                 </label>
                 <div className="relative">
-                  <UserIcon className="pointer-events-none absolute top-3 left-3.5 h-4 w-4 text-[#737686]" />
+                  <UserIcon className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[#737686]" />
                   <input
                     id="auth-name"
                     name="fullname"
@@ -120,16 +120,16 @@ export function AuthScreen() {
                     onBlur={() => setTouched((t) => ({ ...t, name: true }))}
                     aria-invalid={nameInvalid ? 'true' : 'false'}
                     aria-describedby={nameInvalid ? 'auth-name-error' : undefined}
-                    className={`mp-input pl-10 ${nameInvalid ? 'user-invalid-fallback' : ''}`}
+                    className={`mp-input pl-11 ${nameInvalid ? 'user-invalid-fallback' : ''}`}
                   />
-                  <p id="auth-name-error" className="mp-error-msg">
-                    Error: Escribe al menos 2 caracteres para tu nombre.
-                  </p>
                 </div>
+                <p id="auth-name-error" className="mp-error-msg">
+                  Error: Escribe al menos 2 caracteres para tu nombre.
+                </p>
               </div>
             ) : null}
 
-            <div>
+            <div className="mp-field">
               <label
                 htmlFor="auth-email"
                 className="mb-1.5 block text-xs font-semibold text-[#434655]"
@@ -140,7 +140,7 @@ export function AuthScreen() {
                 Formato: nombre@correo.buap.mx
               </span>
               <div className="relative">
-                <Mail className="pointer-events-none absolute top-3 left-3.5 h-4 w-4 text-[#737686]" />
+                <Mail className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[#737686]" />
                 <input
                   id="auth-email"
                   name="email"
@@ -157,15 +157,15 @@ export function AuthScreen() {
                   aria-describedby={
                     emailInvalid ? 'auth-email-hint auth-email-error' : 'auth-email-hint'
                   }
-                  className={`mp-input pl-10 ${emailInvalid ? 'user-invalid-fallback' : ''}`}
+                  className={`mp-input pl-11 ${emailInvalid ? 'user-invalid-fallback' : ''}`}
                 />
-                <p id="auth-email-error" className="mp-error-msg">
-                  Error: Ingresa un correo electrónico válido (ej. nombre@correo.buap.mx).
-                </p>
               </div>
+              <p id="auth-email-error" className="mp-error-msg">
+                Error: Ingresa un correo electrónico válido (ej. nombre@correo.buap.mx).
+              </p>
             </div>
 
-            <div>
+            <div className="mp-field">
               <label
                 htmlFor="auth-password"
                 className="mb-1.5 block text-xs font-semibold text-[#434655]"
@@ -178,7 +178,7 @@ export function AuthScreen() {
                 </span>
               ) : null}
               <div className="relative">
-                <Lock className="pointer-events-none absolute top-3 left-3.5 h-4 w-4 text-[#737686]" />
+                <Lock className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[#737686]" />
                 <input
                   id="auth-password"
                   name="password"
@@ -201,20 +201,20 @@ export function AuthScreen() {
                         ? 'auth-pass-hint'
                         : undefined
                   }
-                  className={`mp-input pl-10 pr-10 ${passInvalid ? 'user-invalid-fallback' : ''}`}
+                  className={`mp-input pl-11 pr-11 ${passInvalid ? 'user-invalid-fallback' : ''}`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass((v) => !v)}
-                  className="absolute top-2.5 right-3 rounded-lg p-1 text-[#737686] hover:text-[#131B2E]"
+                  className="absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-1 text-[#737686] hover:text-[#131B2E]"
                   aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                 >
                   {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
-                <p id="auth-pass-error" className="mp-error-msg">
-                  Error: La contraseña debe tener al menos 6 caracteres.
-                </p>
               </div>
+              <p id="auth-pass-error" className="mp-error-msg">
+                Error: La contraseña debe tener al menos 6 caracteres.
+              </p>
             </div>
 
             {errorMsg ? (

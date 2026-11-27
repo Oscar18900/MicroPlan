@@ -65,43 +65,50 @@ dialog::backdrop {
   overscroll-behavior: contain;
 }
 
-/* Modern Web Guidance: validate input after interaction */
-.mp-input {
-  width: 100%;
-  border-radius: 12px;
-  border: 1.5px solid var(--border-subtle);
-  background-color: #ffffff;
-  padding: 10px 14px;
-  font-size: 0.9375rem;
-  color: var(--text-primary);
-  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
-}
+@layer components {
+  /* Modern Web Guidance: validate input after interaction */
+  .mp-input {
+    width: 100%;
+    border-radius: 12px;
+    border: 1.5px solid var(--border-subtle);
+    background-color: #ffffff;
+    padding: 10px 14px;
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+    transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+  }
 
-.mp-input:focus {
-  outline: none;
-  border-color: var(--brand-blue);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
-}
+  .mp-input:focus {
+    outline: none;
+    border-color: var(--brand-blue);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+  }
 
-.mp-input:is(:user-invalid, .user-invalid-fallback) {
-  border-color: var(--status-danger);
-  background-color: #fff6f5;
-}
+  .mp-input:is(:user-invalid, .user-invalid-fallback) {
+    border-color: var(--status-danger);
+    background-color: #fff6f5;
+  }
 
-.mp-input:is(:user-invalid, .user-invalid-fallback) + .mp-error-msg,
-.mp-input:is(:user-invalid, .user-invalid-fallback) ~ .mp-error-msg {
-  display: block;
-}
+  .mp-input:is(:user-invalid, .user-invalid-fallback) + .mp-error-msg,
+  .mp-input:is(:user-invalid, .user-invalid-fallback) ~ .mp-error-msg,
+  .mp-field:has(.mp-input:is(:user-invalid, .user-invalid-fallback)) .mp-error-msg {
+    display: block;
+  }
 
-.mp-input:user-valid {
-  border-color: var(--status-success);
-}
+  .mp-input:user-valid {
+    border-color: var(--status-success);
+  }
 
-.mp-error-msg {
-  display: none;
-  color: var(--status-danger);
-  font-size: 0.8125rem;
-  margin-top: 4px;
+  .mp-error-msg {
+    display: none;
+    color: var(--status-danger);
+    font-size: 0.8125rem;
+    margin-top: 4px;
+  }
+
+  .safe-bottom-pad {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* Screen-reader live region utility */
@@ -115,8 +122,4 @@ dialog::backdrop {
   padding: 0 !important;
   border: 0 !important;
   white-space: nowrap !important;
-}
-
-.safe-bottom-pad {
-  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
 }
