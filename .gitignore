@@ -45,3 +45,13 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Android / Capacitor build artifacts & signing keys
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/local.properties
+*.apk
+*.aab
+*.keystore
+*.jks

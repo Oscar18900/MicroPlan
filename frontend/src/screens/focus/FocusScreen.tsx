@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import type { PluginListenerHandle } from '@capacitor/core';
 import {
   CheckCircle2,
   Coffee,
@@ -16,6 +18,10 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { requestNotificationPermission } from '../../services/notifications';
+import {
+  distractionShieldBridge,
+  type NativeShieldPermissions,
+} from '../../services/shieldBridge';
 import { getTodayKey } from '../../services/timeService';
 import type { AmbientSoundType } from '../../types/domain';
 
@@ -64,6 +70,58 @@ export function FocusScreen() {
         )
       : 25 * 60
   );
+  const [nativePerms, setNativePerms] = useState<NativeShieldPermissions | null>(null);
+  const isAndroidNative = distractionShieldBridge.platform === 'capacitor_android';
+
+  const refreshNativePerms = useCallback(async () => {
+    if (!isAndroidNative || !distractionShieldBridge.getNativePermissions) return;
+    try {
+      const perms = await distractionShieldBridge.getNativePermissions();
+      setNativePerms(perms);
+    } catch {
+      // Ignore bridge read error
+    }
+  }, [isAndroidNative]);
+
+  useEffect(() => {
+    if (!isAndroidNative) return;
+    void refreshNativePerms();
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshNativePerms();
+      }
+    };
+    const onFocus = () => void refreshNativePerms();
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
+
+    let disposed = false;
+    let listenerHandle: PluginListenerHandle | null = null;
+    void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive && !disposed) {
+        void refreshNativePerms();
+      }
+    })
+      .then((h) => {
+        if (disposed) {
+          void h.remove();
+        } else {
+          listenerHandle = h;
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
+      if (listenerHandle) {
+        void listenerHandle.remove();
+      }
+    };
+  }, [isAndroidNative, refreshNativePerms]);
 
   // Tick timer accurately from startedAt timestamp (survives background/reload)
   useEffect(() => {
@@ -374,7 +432,7 @@ export function FocusScreen() {
       </section>
 
       {/* Conscious Friction Shield info card */}
-      <section className="rounded-3xl border border-[#E5E7F3] bg-white p-4 space-y-1.5">
+      <section className="rounded-3xl border border-[#E5E7F3] bg-white p-4 space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="text-xs font-extrabold text-[#131B2E] flex items-center gap-1.5">
             <Shield className="h-4 w-4 text-[#006A63]" />
@@ -397,9 +455,85 @@ export function FocusScreen() {
           </span>
         </div>
         <p className="text-[11px] text-[#434655]">
-          Detecta cambios de pestaña dentro de la app o al volver de otras apps durante un bloque
-          activo. En versión APK aplicará bloqueo nativo sobre redes sociales.
+          {isAndroidNative
+            ? 'Al abrir otra app durante un bloque Pomodoro activo, MicroPlan muestra un aviso calmado encima con opción de volver o salir igualmente sin romper tu racha.'
+            : 'Detecta cambios de pestaña dentro de la app o al volver de otras apps durante un bloque activo. En versión APK aplicará aviso nativo sobre otras apps.'}
         </p>
+
+        {isAndroidNative ? (
+          <div className="space-y-2 pt-1">
+            {nativePerms?.usageAccess && nativePerms?.overlay ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-[#E6F7EC] px-3 py-2 text-[11px] font-bold text-[#117E3B]">
+                <span>Escudo nativo Android listo (aviso sobre otras apps)</span>
+                {!nativePerms.notifications ? (
+                  <button
+                    type="button"
+                    onClick={() => void distractionShieldBridge.requestNotificationPermission?.()}
+                    className="rounded-xl bg-white px-2.5 py-1 text-[10px] font-bold text-[#006A63] shadow-2xs"
+                  >
+                    Permitir notificaciones
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <div className="space-y-1.5 rounded-2xl border border-[#B15106]/20 bg-[#FFFBEB]/70 p-2.5">
+                <span className="block text-[10px] font-extrabold tracking-wide text-[#B15106] uppercase">
+                  Configura el escudo en Android (1 sola vez)
+                </span>
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-semibold text-[#131B2E]">
+                    1. Acceso a datos de uso
+                  </span>
+                  {nativePerms?.usageAccess ? (
+                    <span className="rounded-full bg-[#E6F7EC] px-2 py-0.5 text-[10px] font-bold text-[#117E3B]">
+                      Listo
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void distractionShieldBridge.requestUsageAccess?.()}
+                      className="rounded-xl bg-[#2563EB] px-2.5 py-1 text-[10px] font-bold text-white"
+                    >
+                      Activar
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-semibold text-[#131B2E]">
+                    2. Mostrar sobre otras apps
+                  </span>
+                  {nativePerms?.overlay ? (
+                    <span className="rounded-full bg-[#E6F7EC] px-2 py-0.5 text-[10px] font-bold text-[#117E3B]">
+                      Listo
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void distractionShieldBridge.requestOverlayPermission?.()}
+                      className="rounded-xl bg-[#2563EB] px-2.5 py-1 text-[10px] font-bold text-white"
+                    >
+                      Activar
+                    </button>
+                  )}
+                </div>
+                {!nativePerms?.notifications ? (
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="font-semibold text-[#434655]">
+                      3. Notificaciones (opcional)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void distractionShieldBridge.requestNotificationPermission?.()}
+                      className="rounded-xl border border-[#E5E7F3] bg-white px-2.5 py-1 text-[10px] font-bold text-[#131B2E]"
+                    >
+                      Activar
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : null}
       </section>
 
       {/* Offline Ambient Sound Selector */}

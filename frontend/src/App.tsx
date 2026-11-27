@@ -60,12 +60,28 @@ export function App() {
       Boolean(activeTimer?.startedAt) &&
       activeTimer?.mode === 'focus' &&
       Boolean(activeTimer?.shieldEnabled);
-    if (!isProtectedFocusRunning) return;
+    if (!isProtectedFocusRunning || !activeTimer) return;
 
-    return distractionShieldBridge.startMonitoring((awaySeconds) => {
-      void triggerShieldWarning(awaySeconds);
-    });
-  }, [activeTimer?.startedAt, activeTimer?.mode, activeTimer?.shieldEnabled, triggerShieldWarning]);
+    const endsAtMs =
+      (activeTimer.startedAt ?? Date.now()) + activeTimer.durationSec * 1000;
+
+    return distractionShieldBridge.startMonitoring(
+      (awaySeconds) => {
+        void triggerShieldWarning(awaySeconds);
+      },
+      {
+        endsAtMs,
+        taskTitle: activeTimer.microTaskTitle,
+      }
+    );
+  }, [
+    activeTimer?.startedAt,
+    activeTimer?.mode,
+    activeTimer?.shieldEnabled,
+    activeTimer?.durationSec,
+    activeTimer?.microTaskTitle,
+    triggerShieldWarning,
+  ]);
 
   // Automatic Nocturnal Curfew Check (every 20s)
   useEffect(() => {
