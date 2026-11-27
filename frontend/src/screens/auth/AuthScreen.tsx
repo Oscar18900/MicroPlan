@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Eye, EyeOff, Lock, Mail, Moon, User as UserIcon } from 'lucide-react';
+import {
+  isNativeAndroidGoogleAuthAvailable,
+  signInWithNativeGoogle,
+} from '../../services/googleNativeAuth';
 import { useAppStore } from '../../store/useAppStore';
 
 interface GoogleCredentialResponse {
@@ -33,6 +37,7 @@ export function AuthScreen() {
   const [showPass, setShowPass] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [touched, setTouched] = useState<{ name: boolean; email: boolean; password: boolean }>({
     name: false,
     email: false,
@@ -40,6 +45,7 @@ export function AuthScreen() {
   });
 
   const googleBtnRef = useRef<HTMLDivElement>(null);
+  const isNativeAndroidGoogle = isNativeAndroidGoogleAuthAvailable();
   const googleClientId = useAppStore((s) => s.googleClientId);
   const refreshBackendHealth = useAppStore((s) => s.refreshBackendHealth);
   const registerLocal = useAppStore((s) => s.registerLocal);
@@ -53,7 +59,7 @@ export function AuthScreen() {
   }, [googleClientId, refreshBackendHealth]);
 
   useEffect(() => {
-    if (!googleClientId || !googleBtnRef.current) return;
+    if (isNativeAndroidGoogle || !googleClientId || !googleBtnRef.current) return;
 
     const initGoogleButton = () => {
       if (!window.google?.accounts?.id || !googleBtnRef.current) return;
@@ -96,7 +102,26 @@ export function AuthScreen() {
     return () => {
       script?.removeEventListener('load', initGoogleButton);
     };
-  }, [googleClientId, mode, loginWithGoogleCredential]);
+  }, [isNativeAndroidGoogle, googleClientId, mode, loginWithGoogleCredential]);
+
+  const handleNativeGoogleSignIn = async () => {
+    if (!googleClientId || googleLoading) return;
+    setErrorMsg(null);
+    setGoogleLoading(true);
+    try {
+      const { idToken } = await signInWithNativeGoogle(googleClientId);
+      const res = await loginWithGoogleCredential(idToken);
+      if (!res.ok) {
+        setErrorMsg(res.error ?? 'Error en Google OAuth.');
+      }
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'No se pudo iniciar sesión con Google.'
+      );
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -333,7 +358,42 @@ export function AuthScreen() {
 
           {googleClientId ? (
             <div className="flex flex-col items-center gap-2">
-              <div ref={googleBtnRef} className="flex min-h-[44px] items-center justify-center" />
+              {isNativeAndroidGoogle ? (
+                <button
+                  type="button"
+                  disabled={googleLoading}
+                  onClick={() => void handleNativeGoogleSignIn()}
+                  className="flex w-full max-w-[296px] items-center justify-center gap-2.5 rounded-full border border-[#E5E7F3] bg-white px-4 py-2.5 text-sm font-semibold text-[#131B2E] shadow-2xs transition hover:bg-[#FAF8FF] disabled:opacity-60"
+                >
+                  <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="#4285F4"
+                      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
+                    />
+                  </svg>
+                  <span>
+                    {googleLoading
+                      ? 'Conectando con Google...'
+                      : mode === 'register'
+                        ? 'Registrarse con Google'
+                        : 'Continuar con Google'}
+                  </span>
+                </button>
+              ) : (
+                <div ref={googleBtnRef} className="flex min-h-[44px] items-center justify-center" />
+              )}
               <p className="text-center text-[10px] text-[#737686]">
                 Acceso seguro con Google OAuth verificado por tu servidor MicroPlan.
               </p>
