@@ -117,7 +117,6 @@ export function App() {
         return (
           <ScheduleScreen
             backLabel="Plan"
-            initialTab="subjects"
             onBack={() => setPlanSubView('list')}
           />
         );
@@ -134,7 +133,6 @@ export function App() {
         return (
           <ScheduleScreen
             backLabel="Perfil"
-            initialTab="schedule"
             onBack={() => setProfileSubView('main')}
           />
         );

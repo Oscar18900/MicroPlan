@@ -109,7 +109,7 @@ export function PlanScreen() {
           className="inline-flex items-center gap-1.5 rounded-2xl border border-[#E5E7F3] bg-white px-3 py-2 text-xs font-bold text-[#131B2E] hover:bg-[#F2F3FF]"
         >
           <BookOpen className="h-3.5 w-3.5 text-[#2563EB]" />
-          Materias y Horario ({subjects.length})
+          Horario ({subjects.length})
         </button>
       </div>
 

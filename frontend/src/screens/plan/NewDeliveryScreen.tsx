@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { ArrowLeft, FileUp, Paperclip, Plus, ShieldAlert, Sparkles } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
+import { AddClassModal } from '../../components/AddClassModal';
 import { aiPlannerAdapter } from '../../services/adapter';
 import { addDaysYYYYMMDD, getTodayKey } from '../../services/timeService';
 import type { AttachmentMeta } from '../../types/domain';
@@ -53,6 +54,7 @@ export function NewDeliveryScreen() {
   const initial = loadDraft(subjects[0]?.id ?? '');
   const [subjectId, setSubjectId] = useState(initial.subjectId);
   const [quickSubjectName, setQuickSubjectName] = useState('');
+  const [showAddClassModal, setShowAddClassModal] = useState(false);
   const [title, setTitle] = useState(initial.title);
   const [dueDate, setDueDate] = useState(initial.dueDate);
   const [instructionsText, setInstructionsText] = useState(initial.instructionsText);
@@ -209,7 +211,7 @@ export function NewDeliveryScreen() {
             </span>
             <button
               type="button"
-              onClick={() => setPlanSubView('subjects')}
+              onClick={() => setShowAddClassModal(true)}
               className="inline-flex items-center gap-1 text-xs font-bold text-[#2563EB]"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -361,6 +363,13 @@ export function NewDeliveryScreen() {
           </button>
         </div>
       </form>
+
+      <AddClassModal
+        open={showAddClassModal}
+        initialMode="new"
+        onClose={() => setShowAddClassModal(false)}
+        onSaved={(newSubjectId) => setSubjectId(newSubjectId)}
+      />
     </div>
   );
 }
