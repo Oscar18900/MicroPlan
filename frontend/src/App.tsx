@@ -12,7 +12,6 @@ import { PlanScreen } from './screens/plan/PlanScreen';
 import { NewDeliveryScreen } from './screens/plan/NewDeliveryScreen';
 import { AiAnalyzingScreen } from './screens/plan/AiAnalyzingScreen';
 import { AiReviewScreen } from './screens/plan/AiReviewScreen';
-import { SubjectsScreen } from './screens/plan/SubjectsScreen';
 import { RebalanceScreen } from './screens/plan/RebalanceScreen';
 import { FocusScreen } from './screens/focus/FocusScreen';
 import { FocusCompleteModal } from './screens/focus/FocusCompleteModal';
@@ -32,6 +31,8 @@ export function App() {
   const activeTab = useAppStore((s) => s.activeTab);
   const planSubView = useAppStore((s) => s.planSubView);
   const profileSubView = useAppStore((s) => s.profileSubView);
+  const setPlanSubView = useAppStore((s) => s.setPlanSubView);
+  const setProfileSubView = useAppStore((s) => s.setProfileSubView);
   const curfewDismissedForToday = useAppStore((s) => s.curfewDismissedForToday);
   const hydrate = useAppStore((s) => s.hydrate);
   const setOnlineStatus = useAppStore((s) => s.setOnlineStatus);
@@ -113,7 +114,13 @@ export function App() {
       case 'review_ai':
         return <AiReviewScreen />;
       case 'subjects':
-        return <SubjectsScreen />;
+        return (
+          <ScheduleScreen
+            backLabel="Plan"
+            initialTab="subjects"
+            onBack={() => setPlanSubView('list')}
+          />
+        );
       case 'rebalance':
         return <RebalanceScreen />;
       default:
@@ -124,7 +131,13 @@ export function App() {
   const renderProfileView = () => {
     switch (profileSubView) {
       case 'schedule':
-        return <ScheduleScreen />;
+        return (
+          <ScheduleScreen
+            backLabel="Perfil"
+            initialTab="schedule"
+            onBack={() => setProfileSubView('main')}
+          />
+        );
       case 'badges':
         return <BadgesGuidesScreen />;
       default:

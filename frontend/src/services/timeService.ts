@@ -100,7 +100,36 @@ export function getWeekStartMonday(yyyyMmDd: string): string {
   return formatDateYYYYMMDD(dt);
 }
 
-import type { LeisureConflictInfo, UserWellnessConfig } from '../types/domain';
+import type { ClassBlock, LeisureConflictInfo, UserWellnessConfig } from '../types/domain';
+
+export const DAY_NAMES_FULL: Record<number, string> = {
+  1: 'Lunes',
+  2: 'Martes',
+  3: 'Miércoles',
+  4: 'Jueves',
+  5: 'Viernes',
+};
+
+export function findClassOverlap(
+  candidate: { dayOfWeek: number; startTime: string; endTime: string },
+  existingBlocks: ClassBlock[],
+  excludeBlockId?: string
+): ClassBlock | null {
+  const cStart = timeToMinutes(candidate.startTime);
+  const cEnd = timeToMinutes(candidate.endTime);
+  if (cEnd <= cStart) return null;
+
+  for (const b of existingBlocks) {
+    if (excludeBlockId && b.id === excludeBlockId) continue;
+    if (b.dayOfWeek !== candidate.dayOfWeek) continue;
+    const bStart = timeToMinutes(b.startTime);
+    const bEnd = timeToMinutes(b.endTime);
+    if (cStart < bEnd && cEnd > bStart) {
+      return b;
+    }
+  }
+  return null;
+}
 
 export function getJsDayOfWeek1to7(yyyyMmDd: string): number {
   const [y, m, d] = yyyyMmDd.split('-').map(Number);

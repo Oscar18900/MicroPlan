@@ -10,12 +10,15 @@ import {
 } from '../services/gamification';
 import {
   addDaysYYYYMMDD,
+  DAY_NAMES_FULL,
   evaluateLeisureConflict,
+  findClassOverlap,
   getClockOverride,
   getCurrentHHmm,
   getTodayKey,
   getWeekStartMonday,
   setClockOverride,
+  timeToMinutes,
   type ClockOverride,
 } from '../services/timeService';
 import { audioEngine } from '../services/audioEngine';
@@ -162,7 +165,10 @@ interface AppState {
   // Subjects & Schedule
   addSubject: (name: string, colorHex: string) => Promise<Subject | null>;
   deleteSubject: (subjectId: string) => Promise<void>;
-  addClassBlock: (block: Omit<ClassBlock, 'id' | 'userId'>) => Promise<void>;
+  addClassBlock: (block: Omit<ClassBlock, 'id' | 'userId'>) => Promise<{ ok: boolean; error?: string }>;
+  addClassBlocks: (
+    blocks: Array<Omit<ClassBlock, 'id' | 'userId'>>
+  ) => Promise<{ ok: boolean; error?: string }>;
   deleteClassBlock: (blockId: string) => Promise<void>;
 
   // Deliveries & MicroTasks
@@ -710,18 +716,54 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (existing.length === 0 && subjectsInput.length > 0) {
       const createdSubjects: Subject[] = [];
       const createdBlocks: ClassBlock[] = [];
+
+      const findNonOverlappingSlot = (
+        day: 1 | 2 | 3 | 4 | 5,
+        preferredShift: 'morning' | 'afternoon' | 'mixed'
+      ) => {
+        const hours =
+          preferredShift === 'afternoon'
+            ? [14, 16, 18, 8, 10, 12]
+            : [8, 10, 12, 14, 16, 18];
+        for (const h of hours) {
+          const startTime = `${String(h).padStart(2, '0')}:00`;
+          const endTime = `${String(h + 2).padStart(2, '0')}:00`;
+          if (!findClassOverlap({ dayOfWeek: day, startTime, endTime }, createdBlocks)) {
+            return { startTime, endTime };
+          }
+        }
+        return null;
+      };
+
       subjectsInput.forEach((s, idx) => {
         const subId = `sub_${user.id}_${Date.now().toString(36)}_${idx}`;
         createdSubjects.push({ id: subId, userId: user.id, name: s.name, colorHex: s.colorHex });
-        const baseHour = s.shift === 'afternoon' ? 14 + (idx % 3) * 2 : 8 + (idx % 3) * 2;
-        const startTime = `${String(baseHour).padStart(2, '0')}:00`;
-        const endTime = `${String(baseHour + 2).padStart(2, '0')}:00`;
         const day1 = ((idx % 5) + 1) as 1 | 2 | 3 | 4 | 5;
         const day2 = (((idx + 2) % 5) + 1) as 1 | 2 | 3 | 4 | 5;
-        createdBlocks.push(
-          { id: `cb_${subId}_a`, userId: user.id, subjectId: subId, dayOfWeek: day1, startTime, endTime, label: s.name },
-          { id: `cb_${subId}_b`, userId: user.id, subjectId: subId, dayOfWeek: day2, startTime, endTime, label: s.name }
-        );
+        const slot1 = findNonOverlappingSlot(day1, s.shift);
+        if (slot1) {
+          createdBlocks.push({
+            id: `cb_${subId}_a`,
+            userId: user.id,
+            subjectId: subId,
+            dayOfWeek: day1,
+            startTime: slot1.startTime,
+            endTime: slot1.endTime,
+            label: s.name,
+          });
+        }
+        const slot2 = findNonOverlappingSlot(day2, s.shift);
+        if (slot2) {
+          createdBlocks.push({
+            id: `cb_${subId}_b`,
+            userId: user.id,
+            subjectId: subId,
+            dayOfWeek: day2,
+            startTime: slot2.startTime,
+            endTime: slot2.endTime,
+            label: s.name,
+          });
+        }
       });
       await db.subjects.bulkPut(createdSubjects);
       await db.classBlocks.bulkPut(createdBlocks);
@@ -851,19 +893,57 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addClassBlock: async (block) => {
+    return get().addClassBlocks([block]);
+  },
+
+  addClassBlocks: async (blocks) => {
     const { user } = get();
-    if (!user) return;
-    const item: ClassBlock = {
-      ...block,
-      id: `cb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
-      userId: user.id,
-    };
-    await db.classBlocks.put(item);
-    await enqueueOfflineMutation(user.id, 'classBlock', 'create', { ...item });
+    if (!user) return { ok: false, error: 'Sin sesión activa.' };
+    if (blocks.length === 0) return { ok: false, error: 'Selecciona al menos un día.' };
+
+    const existingBlocks = await db.classBlocks.where('userId').equals(user.id).toArray();
+    const pendingToCreate: ClassBlock[] = [];
+
+    for (const block of blocks) {
+      const startMins = timeToMinutes(block.startTime);
+      const endMins = timeToMinutes(block.endTime);
+      if (endMins <= startMins) {
+        return { ok: false, error: 'La hora de fin debe ser posterior a la hora de inicio.' };
+      }
+      if (endMins - startMins < 30) {
+        return { ok: false, error: 'Cada bloque de clase debe durar al menos 30 minutos.' };
+      }
+
+      const conflict = findClassOverlap(block, [...existingBlocks, ...pendingToCreate]);
+      if (conflict) {
+        const dayName = DAY_NAMES_FULL[block.dayOfWeek] ?? `Día ${block.dayOfWeek}`;
+        return {
+          ok: false,
+          error: `Empalme el ${dayName}: choca con "${conflict.label}" (${conflict.startTime}–${conflict.endTime}).`,
+        };
+      }
+
+      pendingToCreate.push({
+        ...block,
+        id: `cb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        userId: user.id,
+      });
+    }
+
+    await db.classBlocks.bulkPut(pendingToCreate);
+    await enqueueOfflineMutation(user.id, 'classBlock', 'create', {
+      count: pendingToCreate.length,
+    });
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
-    get().pushToast('Bloque agregado al horario.', 'success');
+    get().pushToast(
+      pendingToCreate.length === 1
+        ? 'Bloque agregado al horario.'
+        : `${pendingToCreate.length} bloques agregados al horario.`,
+      'success'
+    );
     void get().syncWithBackend();
+    return { ok: true };
   },
 
   deleteClassBlock: async (blockId) => {
