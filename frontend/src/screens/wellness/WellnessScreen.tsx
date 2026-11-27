@@ -85,31 +85,33 @@ export function WellnessScreen() {
           </span>
         </div>
 
-        <div className="relative pt-4">
-          {/* Dashed Goal Line */}
-          <div
-            className="pointer-events-none absolute inset-x-0 border-t border-dashed border-[#006A63]/50"
-            style={{ top: `${Math.max(12, 110 - (config.sleepGoalHours / 9) * 90)}px` }}
-          />
-          <div className="grid grid-cols-7 gap-2 items-end h-28">
+        <div className="pt-2">
+          <div className="relative grid grid-cols-7 gap-2 items-end h-28">
+            {/* Dashed Goal Line aligned strictly to the bar container */}
+            <div
+              className="pointer-events-none absolute inset-x-0 border-t border-dashed border-[#006A63]/60"
+              style={{ bottom: `${Math.min(100, Math.round((config.sleepGoalHours / 9) * 100))}%` }}
+            />
             {weekData.map((d) => {
-              const heightPx = d.hours > 0 ? Math.min(96, Math.round((d.hours / 9) * 90)) : 8;
+              const heightPct = d.hours > 0 ? Math.min(100, Math.round((d.hours / 9) * 100)) : 8;
               const metGoal = d.hours >= config.sleepGoalHours;
               return (
-                <div key={d.dateKey} className="flex flex-col items-center gap-1.5">
+                <div key={d.dateKey} className="flex h-full flex-col items-center justify-end gap-1.5">
                   <span className="text-[10px] font-bold text-[#434655]">
                     {d.hours > 0 ? `${d.hours}h` : '—'}
                   </span>
-                  <div
-                    className={`w-full max-w-[26px] rounded-t-xl transition-all ${
-                      d.hours === 0
-                        ? 'bg-[#EAEDFF]'
-                        : metGoal
-                          ? 'bg-[#006A63]'
-                          : 'bg-[#B15106]'
-                    }`}
-                    style={{ height: `${heightPx}px` }}
-                  />
+                  <div className="flex w-full flex-1 items-end justify-center">
+                    <div
+                      className={`w-full max-w-[26px] rounded-t-xl transition-all ${
+                        d.hours === 0
+                          ? 'bg-[#EAEDFF]'
+                          : metGoal
+                            ? 'bg-[#006A63]'
+                            : 'bg-[#B15106]'
+                      }`}
+                      style={{ height: `${heightPct}%` }}
+                    />
+                  </div>
                   <span
                     className={`text-[11px] font-bold ${
                       d.isToday ? 'text-[#2563EB]' : 'text-[#737686]'

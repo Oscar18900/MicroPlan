@@ -46,6 +46,11 @@ export function DevToolsPanel() {
           </button>
         </div>
 
+        <p className="mt-3 rounded-2xl bg-[#E5EEFF]/70 px-3 py-2 text-[11px] font-medium text-[#004AC6]">
+          En producción (Fase 3+), este panel solo será visible para cuentas con rol{' '}
+          <strong>admin</strong>.
+        </p>
+
         <div className="mt-4 space-y-4 text-xs">
           {/* Time simulator */}
           <section className="space-y-2">

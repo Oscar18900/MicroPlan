@@ -100,8 +100,49 @@ export function getWeekStartMonday(yyyyMmDd: string): string {
   return formatDateYYYYMMDD(dt);
 }
 
+import type { LeisureConflictInfo, UserWellnessConfig } from '../types/domain';
+
 export function getJsDayOfWeek1to7(yyyyMmDd: string): number {
   const [y, m, d] = yyyyMmDd.split('-').map(Number);
   const day = new Date(y, m - 1, d).getDay();
   return day === 0 ? 7 : day; // 1=Mon..7=Sun
+}
+
+/**
+ * Checks if starting a Pomodoro block now conflicts with today's Protected Leisure window.
+ */
+export function evaluateLeisureConflict(
+  plannedMinutes: number,
+  config: UserWellnessConfig | null
+): LeisureConflictInfo | null {
+  if (!config) return null;
+  const todayDow = getJsDayOfWeek1to7(getTodayKey());
+  if (!config.leisureDays.includes(todayDow)) return null;
+
+  const nowMins = timeToMinutes(getCurrentHHmm());
+  const startMins = timeToMinutes(config.leisureStart);
+  const endMins = timeToMinutes(config.leisureEnd);
+  if (endMins <= startMins) return null;
+
+  if (nowMins >= startMins && nowMins < endMins) {
+    return {
+      type: 'during_leisure',
+      leisureStart: config.leisureStart,
+      leisureEnd: config.leisureEnd,
+      minutesUntilLeisure: 0,
+      rigidity: config.shieldRigidity,
+    };
+  }
+
+  if (nowMins < startMins && nowMins + plannedMinutes > startMins) {
+    return {
+      type: 'overlaps_leisure',
+      leisureStart: config.leisureStart,
+      leisureEnd: config.leisureEnd,
+      minutesUntilLeisure: startMins - nowMins,
+      rigidity: config.shieldRigidity,
+    };
+  }
+
+  return null;
 }

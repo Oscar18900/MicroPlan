@@ -9,7 +9,7 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { useAppStore } from '../store/useAppStore';
+import { canAccessLab, useAppStore } from '../store/useAppStore';
 import type { AppTab } from '../types/domain';
 
 const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: typeof Home }> = [
@@ -21,6 +21,7 @@ const NAV_ITEMS: Array<{ id: AppTab; label: string; icon: typeof Home }> = [
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const user = useAppStore((s) => s.user);
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const isOnline = useAppStore((s) => s.isOnline);
@@ -28,6 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setShowDevTools = useAppStore((s) => s.setShowDevTools);
   const activeTimer = useAppStore((s) => s.activeTimer);
   const isFocusActive = Boolean(activeTimer?.startedAt && activeTimer.mode === 'focus');
+  const showLabButton = canAccessLab(user);
 
   return (
     <div className="min-h-dvh w-full bg-[#EAEDFF]/60 flex justify-center">
@@ -56,15 +58,17 @@ export function AppShell({ children }: { children: ReactNode }) {
               </span>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => setShowDevTools(true)}
-            className="inline-flex items-center gap-1 rounded-full border border-[#E5E7F3] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#434655] hover:bg-[#F2F3FF]"
-            aria-label="Abrir modo pruebas"
-          >
-            <FlaskConical className="h-3 w-3 text-[#2563EB]" />
-            Lab
-          </button>
+          {showLabButton ? (
+            <button
+              type="button"
+              onClick={() => setShowDevTools(true)}
+              className="inline-flex items-center gap-1 rounded-full border border-[#E5E7F3] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#434655] hover:bg-[#F2F3FF]"
+              aria-label="Abrir modo pruebas"
+            >
+              <FlaskConical className="h-3 w-3 text-[#2563EB]" />
+              Lab
+            </button>
+          ) : null}
         </header>
 
         {/* Main scrollable viewport */}

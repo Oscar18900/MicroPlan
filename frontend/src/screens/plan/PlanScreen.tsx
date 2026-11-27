@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BookOpen,
@@ -11,28 +11,44 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
-import { aiPlannerAdapter } from '../../services/adapter';
 import { formatTime12h, getSpanishDayLabel, getTodayKey } from '../../services/timeService';
 
 export function PlanScreen() {
   const config = useAppStore((s) => s.config);
   const subjects = useAppStore((s) => s.subjects);
-  const classBlocks = useAppStore((s) => s.classBlocks);
   const deliveries = useAppStore((s) => s.deliveries);
   const microTasks = useAppStore((s) => s.microTasks);
+  const autoExpandDeliveryId = useAppStore((s) => s.autoExpandDeliveryId);
+  const clearAutoExpandDeliveryId = useAppStore((s) => s.clearAutoExpandDeliveryId);
   const setPlanSubView = useAppStore((s) => s.setPlanSubView);
   const toggleMicroTaskComplete = useAppStore((s) => s.toggleMicroTaskComplete);
   const addManualMicroTask = useAppStore((s) => s.addManualMicroTask);
   const deleteDelivery = useAppStore((s) => s.deleteDelivery);
   const openFocusWithTask = useAppStore((s) => s.openFocusWithTask);
 
+  const today = getTodayKey();
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('all');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [addingForDelivery, setAddingForDelivery] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskMins, setNewTaskMins] = useState<25 | 50>(25);
+  const [newTaskMins, setNewTaskMins] = useState<number>(0);
+  const [newTaskDate, setNewTaskDate] = useState<string>(today);
 
-  const today = getTodayKey();
+  useEffect(() => {
+    if (selectedSubjectId !== 'all' && !subjects.some((s) => s.id === selectedSubjectId)) {
+      setSelectedSubjectId('all');
+    }
+  }, [subjects, selectedSubjectId]);
+
+  useEffect(() => {
+    if (autoExpandDeliveryId) {
+      setExpandedIds((prev) => ({ ...prev, [autoExpandDeliveryId]: true }));
+      setAddingForDelivery(autoExpandDeliveryId);
+      setNewTaskDate(today);
+      clearAutoExpandDeliveryId();
+    }
+  }, [autoExpandDeliveryId, clearAutoExpandDeliveryId, today]);
+
   const capacityMins = config?.dailyCapacityMinutes ?? 180;
 
   // Compute today's load & whether any upcoming day is overloaded
@@ -54,10 +70,6 @@ export function PlanScreen() {
     return Array.from(byDate.values()).filter((m) => m > capacityMins).length;
   }, [microTasks, today, capacityMins]);
 
-  // Keep rebalance check ready
-  void aiPlannerAdapter;
-  void classBlocks;
-
   const subjectMap = useMemo(() => new Map(subjects.map((s) => [s.id, s])), [subjects]);
 
   const filteredDeliveries = useMemo(() => {
@@ -77,8 +89,9 @@ export function PlanScreen() {
 
   const handleAddStep = async (deliveryId: string) => {
     if (!newTaskTitle.trim()) return;
-    await addManualMicroTask(deliveryId, newTaskTitle, newTaskMins, today);
+    await addManualMicroTask(deliveryId, newTaskTitle, newTaskMins, newTaskDate || today);
     setNewTaskTitle('');
+    setNewTaskDate(today);
     setAddingForDelivery(null);
   };
 
@@ -234,8 +247,13 @@ export function PlanScreen() {
                       style={{ backgroundColor: sub?.colorHex ?? '#2563EB' }}
                     />
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-sm font-extrabold text-[#131B2E] leading-snug">
-                        {del.title}
+                      <h2 className="text-sm font-extrabold text-[#131B2E] leading-snug flex flex-wrap items-center gap-1.5">
+                        <span>{del.title}</span>
+                        {tasks.length > 0 && doneCount === tasks.length ? (
+                          <span className="rounded-full bg-[#E6F7EC] px-2 py-0.5 text-[10px] font-bold text-[#117E3B]">
+                            Completada
+                          </span>
+                        ) : null}
                       </h2>
                       <p className="mt-0.5 text-[11px] font-medium text-[#737686]">
                         {sub?.name ?? 'Materia'} · Límite: {getSpanishDayLabel(del.dueDate)} ·{' '}
@@ -310,7 +328,9 @@ export function PlanScreen() {
                               </p>
                               <p className="mt-0.5 text-[10px] font-medium text-[#737686]">
                                 {getSpanishDayLabel(task.scheduledDate)} ·{' '}
-                                {formatTime12h(task.scheduledSlot)} · {task.estimatedMinutes} min
+                                {task.estimatedMinutes > 0
+                                  ? `${task.scheduledSlot ? `${formatTime12h(task.scheduledSlot)} · ` : ''}${task.estimatedMinutes} min`
+                                  : 'Sin Pomodoro · Checklist'}
                               </p>
                             </div>
 
@@ -322,6 +342,11 @@ export function PlanScreen() {
                                     task.id,
                                     task.estimatedMinutes >= 45 ? 45 : 25
                                   )
+                                }
+                                title={
+                                  task.estimatedMinutes > 0
+                                    ? 'Iniciar en Focus'
+                                    : 'Opcional: enfocar esta tarea en Focus'
                                 }
                                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white shadow-2xs hover:bg-[#004AC6]"
                                 aria-label={`Iniciar ${task.title} en Focus`}
@@ -336,31 +361,47 @@ export function PlanScreen() {
 
                     {/* Inline add manual micro-task */}
                     {addingForDelivery === del.id ? (
-                      <div className="rounded-2xl border border-[#E5E7F3] bg-[#FAF8FF] p-3 space-y-2">
+                      <div className="rounded-2xl border border-[#E5E7F3] bg-[#FAF8FF] p-3 space-y-2.5">
                         <input
                           type="text"
                           value={newTaskTitle}
                           onChange={(e) => setNewTaskTitle(e.target.value)}
-                          placeholder="Ej. Redactar conclusiones..."
+                          placeholder="Ej. Leer capítulo 2 o redactar conclusiones..."
                           className="mp-input text-xs"
                         />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-[#737686] mr-1">Modo:</span>
+                          {(
+                            [
+                              { mins: 0, label: 'Sin Pomodoro' },
+                              { mins: 15, label: '15m' },
+                              { mins: 25, label: '25m' },
+                              { mins: 50, label: '50m' },
+                            ] as const
+                          ).map((opt) => (
+                            <button
+                              key={opt.mins}
+                              type="button"
+                              onClick={() => setNewTaskMins(opt.mins)}
+                              className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${
+                                newTaskMins === opt.mins
+                                  ? 'bg-[#2563EB] text-white'
+                                  : 'bg-white border border-[#E5E7F3] text-[#434655]'
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
                         <div className="flex items-center justify-between gap-2">
-                          <div className="flex gap-1.5">
-                            {([25, 50] as const).map((m) => (
-                              <button
-                                key={m}
-                                type="button"
-                                onClick={() => setNewTaskMins(m)}
-                                className={`rounded-lg px-2.5 py-1 text-[11px] font-bold ${
-                                  newTaskMins === m
-                                    ? 'bg-[#2563EB] text-white'
-                                    : 'bg-white border border-[#E5E7F3] text-[#434655]'
-                                }`}
-                              >
-                                {m} min
-                              </button>
-                            ))}
-                          </div>
+                          <input
+                            type="date"
+                            min={today}
+                            value={newTaskDate}
+                            onChange={(e) => setNewTaskDate(e.target.value)}
+                            aria-label="Fecha de la micro-meta"
+                            className="rounded-lg border border-[#E5E7F3] bg-white px-2 py-1 text-[11px] font-semibold text-[#434655]"
+                          />
                           <div className="flex gap-1.5">
                             <button
                               type="button"
@@ -382,7 +423,10 @@ export function PlanScreen() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setAddingForDelivery(del.id)}
+                        onClick={() => {
+                          setNewTaskDate(today);
+                          setAddingForDelivery(del.id);
+                        }}
                         className="inline-flex items-center gap-1 pt-1 text-xs font-semibold text-[#2563EB] hover:underline"
                       >
                         <Plus className="h-3.5 w-3.5" />

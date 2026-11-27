@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { ModalDialog } from '../../components/ModalDialog';
-import { formatTime12h } from '../../services/timeService';
+import { formatTime12h, timeToMinutes } from '../../services/timeService';
 
 const DAYS: Array<{ dow: 1 | 2 | 3 | 4 | 5; short: string; name: string }> = [
   { dow: 1, short: 'LUN', name: 'Lunes' },
@@ -28,11 +28,23 @@ export function ScheduleScreen() {
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('11:00');
   const [label, setLabel] = useState('');
+  const [timeErr, setTimeErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!subjectId && subjects[0]?.id) {
+      setSubjectId(subjects[0].id);
+    }
+  }, [subjects, subjectId]);
 
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
 
   const handleAddBlock = async (e: FormEvent) => {
     e.preventDefault();
+    setTimeErr(null);
+    if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+      setTimeErr('La hora de fin debe ser posterior a la hora de inicio.');
+      return;
+    }
     const resolvedSub = subjectId || subjects[0]?.id;
     if (!resolvedSub) return;
     const subName = subjectMap.get(resolvedSub)?.name ?? 'Clase';
@@ -292,6 +304,11 @@ export function ScheduleScreen() {
                   />
                 </div>
               </div>
+              {timeErr ? (
+                <p role="alert" className="text-xs font-semibold text-[#BA1A1A]">
+                  {timeErr}
+                </p>
+              ) : null}
               <div>
                 <label htmlFor="cls-label" className="mb-1 block text-xs font-bold text-[#434655]">
                   Etiqueta corta (opcional)

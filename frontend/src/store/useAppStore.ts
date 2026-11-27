@@ -10,6 +10,7 @@ import {
 } from '../services/gamification';
 import {
   addDaysYYYYMMDD,
+  evaluateLeisureConflict,
   getClockOverride,
   getCurrentHHmm,
   getTodayKey,
@@ -30,6 +31,7 @@ import type {
   ClassBlock,
   Delivery,
   FocusSession,
+  LeisureConflictInfo,
   MicroTask,
   RebalanceMove,
   SleepLog,
@@ -38,6 +40,12 @@ import type {
   User,
   UserWellnessConfig,
 } from '../types/domain';
+
+export const DEV_ALLOW_LAB_FOR_ALL = true;
+
+export function canAccessLab(user: User | null): boolean {
+  return DEV_ALLOW_LAB_FOR_ALL || user?.role === 'admin';
+}
 
 export type PlanSubView =
   | 'list'
@@ -79,8 +87,11 @@ interface AppState {
   planSubView: PlanSubView;
   profileSubView: ProfileSubView;
   pendingAiDraft: PendingAiDraft | null;
+  autoExpandDeliveryId: string | null;
   showShieldModal: boolean;
+  lastAwaySeconds: number | null;
   pendingNavigationTab: AppTab | null;
+  leisureConflict: LeisureConflictInfo | null;
   showCompleteModal: boolean;
   lastCompletedXp: number;
   lastCompletedTaskId: string | null;
@@ -99,10 +110,12 @@ interface AppState {
   setPlanSubView: (view: PlanSubView) => void;
   setProfileSubView: (view: ProfileSubView) => void;
   setPendingAiDraft: (draft: PendingAiDraft | null) => void;
+  clearAutoExpandDeliveryId: () => void;
   setShowDevTools: (open: boolean) => void;
   setShowCurfewModal: (open: boolean) => void;
   setShowCompleteModal: (open: boolean) => void;
   setShowShieldModal: (open: boolean) => void;
+  setLeisureConflict: (info: LeisureConflictInfo | null) => void;
 
   // Auth
   registerLocal: (name: string, email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
@@ -144,7 +157,7 @@ interface AppState {
     instructionsText: string;
     initialTaskTitle?: string;
   }) => Promise<void>;
-  addManualMicroTask: (deliveryId: string, title: string, minutes: 25 | 50, scheduledDate: string) => Promise<void>;
+  addManualMicroTask: (deliveryId: string, title: string, minutes: number, scheduledDate: string) => Promise<void>;
   toggleMicroTaskComplete: (microTaskId: string, via?: 'direct' | 'focus') => Promise<void>;
   deleteDelivery: (deliveryId: string) => Promise<void>;
   applyRebalanceMoves: (moves: RebalanceMove[]) => Promise<void>;
@@ -155,13 +168,13 @@ interface AppState {
   setFocusShield: (enabled: boolean) => Promise<void>;
   setFocusSound: (sound: AmbientSoundType) => Promise<void>;
   unlinkFocusMicroTask: () => Promise<void>;
-  startOrResumeFocus: () => Promise<void>;
+  startOrResumeFocus: (bypassLeisure?: boolean, overrideMinutes?: number) => Promise<void>;
   pauseFocus: () => Promise<void>;
   resetFocus: () => Promise<void>;
   completeFocusBlock: (completedEarly?: boolean) => Promise<void>;
   discardFocusBlock: () => Promise<void>;
   pauseFocusAndGoHome: () => Promise<void>;
-  triggerShieldWarning: () => Promise<void>;
+  triggerShieldWarning: (awaySeconds?: number) => Promise<void>;
   startRegenerativeBreak: () => Promise<void>;
   extendFocusPlus25: () => Promise<void>;
 
@@ -352,8 +365,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   planSubView: 'list',
   profileSubView: 'main',
   pendingAiDraft: null,
+  autoExpandDeliveryId: null,
   showShieldModal: false,
+  lastAwaySeconds: null,
   pendingNavigationTab: null,
+  leisureConflict: null,
   showCompleteModal: false,
   lastCompletedXp: 0,
   lastCompletedTaskId: null,
@@ -413,11 +429,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPlanSubView: (view) => set({ planSubView: view }),
   setProfileSubView: (view) => set({ profileSubView: view }),
   setPendingAiDraft: (draft) => set({ pendingAiDraft: draft }),
+  clearAutoExpandDeliveryId: () => set({ autoExpandDeliveryId: null }),
   setShowDevTools: (open) => set({ showDevTools: open }),
   setShowCurfewModal: (open) =>
     set({ showCurfewModal: open, curfewDismissedForToday: open ? false : true }),
   setShowCompleteModal: (open) => set({ showCompleteModal: open }),
-  setShowShieldModal: (open) => set({ showShieldModal: open }),
+  setShowShieldModal: (open) =>
+    set({
+      showShieldModal: open,
+      ...(open ? {} : { lastAwaySeconds: null, pendingNavigationTab: null }),
+    }),
+  setLeisureConflict: (info) => set({ leisureConflict: info }),
 
   registerLocal: async (name, email, password) => {
     const cleanEmail = email.trim().toLowerCase();
@@ -432,6 +454,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       email: cleanEmail,
       passwordHash: btoa(unescape(encodeURIComponent(password))),
       authProvider: 'local',
+      role: 'admin',
       career: '',
       semester: '4°–6°',
       xp: 0,
@@ -482,6 +505,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         name,
         email: cleanEmail,
         authProvider: 'google',
+        role: 'admin',
         career: '',
         semester: '4°–6°',
         xp: 0,
@@ -761,6 +785,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       instructionsText: input.instructionsText,
       createdVia: 'manual',
       status: 'active',
+      completionBonusAwarded: false,
       createdAt: new Date().toISOString(),
     };
     await db.deliveries.put(delivery);
@@ -773,8 +798,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         title: input.initialTaskTitle.trim(),
         scheduledDate: today,
         scheduledSlot: '16:00',
-        estimatedMinutes: 25,
-        blocksCount: 1,
+        estimatedMinutes: 0,
+        usePomodoro: false,
+        blocksCount: 0,
         status: 'pending',
         completedVia: null,
         completedAt: null,
@@ -783,22 +809,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     await enqueueOfflineMutation(user.id, 'delivery', 'create', { deliveryId, manual: true });
     const refreshed = await reloadUserStateFromDb(user.id);
-    set({ ...refreshed, planSubView: 'list' });
-    get().pushToast('Entrega manual creada en tu Plan.', 'success');
+    set({ ...refreshed, planSubView: 'list', autoExpandDeliveryId: deliveryId });
+    get().pushToast('Entrega creada. Agrega tus micro-metas paso a paso.', 'success');
   },
 
   addManualMicroTask: async (deliveryId, title, minutes, scheduledDate) => {
     const { user } = get();
     if (!user || !title.trim()) return;
+    const usePomodoro = minutes > 0;
     const task: MicroTask = {
       id: `mt_${deliveryId}_${Date.now().toString(36)}`,
       deliveryId,
       userId: user.id,
       title: title.trim(),
       scheduledDate,
-      scheduledSlot: '16:00',
+      scheduledSlot: usePomodoro ? '16:00' : '',
       estimatedMinutes: minutes,
-      blocksCount: minutes >= 45 ? 2 : 1,
+      usePomodoro,
+      blocksCount: usePomodoro ? Math.max(1, Math.round(minutes / 25)) : 0,
       status: 'pending',
       completedVia: null,
       completedAt: null,
@@ -808,10 +836,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     await enqueueOfflineMutation(user.id, 'microTask', 'create', { id: task.id });
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
+    get().pushToast(
+      usePomodoro ? `Micro-meta agregada (${minutes} min).` : 'Micro-meta agregada (sin Pomodoro).',
+      'success'
+    );
   },
 
   toggleMicroTaskComplete: async (microTaskId, via = 'direct') => {
-    const { user, microTasks, focusSessions } = get();
+    const { user, microTasks, focusSessions, deliveries } = get();
     if (!user) return;
     const target = microTasks.find((m) => m.id === microTaskId);
     if (!target) return;
@@ -824,10 +856,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       completedAt: completing ? new Date().toISOString() : null,
     });
 
-    // Check if all tasks of parent delivery are now completed
+    // Check if all tasks of parent delivery are now completed (grant +25 XP bonus only once)
+    const parentDelivery = deliveries.find((d) => d.id === target.deliveryId);
     const siblings = await db.microTasks.where('deliveryId').equals(target.deliveryId).toArray();
     const allDone = siblings.length > 0 && siblings.every((s) => s.status === 'completed');
-    await db.deliveries.update(target.deliveryId, { status: allDone ? 'completed' : 'active' });
+    const shouldAwardDeliveryBonus =
+      completing && allDone && !parentDelivery?.completionBonusAwarded;
+
+    await db.deliveries.update(target.deliveryId, {
+      status: allDone ? 'completed' : 'active',
+      ...(shouldAwardDeliveryBonus ? { completionBonusAwarded: true } : {}),
+    });
 
     let xpDelta = 0;
     if (completing && via === 'direct') {
@@ -835,7 +874,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } else if (!completing && target.completedVia === 'direct') {
       xpDelta -= XP_REWARDS.DIRECT_MICROTASK;
     }
-    if (completing && allDone) {
+    if (shouldAwardDeliveryBonus) {
       xpDelta += XP_REWARDS.DELIVERY_COMPLETED;
     }
 
@@ -861,7 +900,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set(refreshed);
 
     if (completing && via === 'direct') {
-      const msg = allDone
+      const msg = shouldAwardDeliveryBonus
         ? `¡Entrega completada! +${XP_REWARDS.DIRECT_MICROTASK + XP_REWARDS.DELIVERY_COMPLETED} XP`
         : `Micro-meta completada · +${XP_REWARDS.DIRECT_MICROTASK} XP`;
       get().pushToast(msg, 'success');
@@ -901,7 +940,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { user, microTasks, activeTimer, clockOverride } = get();
     if (!user) return;
     const task = microTaskId ? microTasks.find((t) => t.id === microTaskId) : null;
-    const mins = plannedMinutes ?? (task ? (task.estimatedMinutes >= 45 ? 45 : 25) : 25);
+    const mins =
+      plannedMinutes ??
+      (task && task.estimatedMinutes > 0 ? (task.estimatedMinutes >= 45 ? 45 : 25) : 25);
     const durationSec = clockOverride.fastFocusSeconds ?? mins * 60;
 
     const nextTimer: ActiveFocusTimerState = {
@@ -963,7 +1004,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ activeTimer: updated });
   },
 
-  startOrResumeFocus: async () => {
+  startOrResumeFocus: async (bypassLeisure = false, overrideMinutes?: number) => {
     const { activeTimer, config, clockOverride, user } = get();
     if (!activeTimer || !user) return;
 
@@ -980,20 +1021,33 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
-    const baseRemaining =
-      activeTimer.pausedRemainingSec ??
-      clockOverride.fastFocusSeconds ??
-      activeTimer.durationSec;
+    const effectivePlannedMinutes = overrideMinutes ?? activeTimer.plannedMinutes;
+
+    // Check Protected Leisure conflict before starting a fresh or overridden focus block
+    if (!bypassLeisure && activeTimer.mode === 'focus') {
+      const conflict = evaluateLeisureConflict(effectivePlannedMinutes, config);
+      if (conflict) {
+        set({ leisureConflict: conflict });
+        return;
+      }
+    }
+
+    const baseRemaining = overrideMinutes
+      ? clockOverride.fastFocusSeconds ?? overrideMinutes * 60
+      : activeTimer.pausedRemainingSec ??
+        clockOverride.fastFocusSeconds ??
+        activeTimer.durationSec;
 
     const updated: ActiveFocusTimerState = {
       ...activeTimer,
-      durationSec: baseRemaining,
+      plannedMinutes: effectivePlannedMinutes,
+      durationSec: overrideMinutes ? baseRemaining : activeTimer.durationSec,
       startedAt: Date.now(),
       pausedRemainingSec: null,
     };
     await db.activeTimer.put(updated);
     audioEngine.start(updated.ambientSound);
-    set({ activeTimer: updated });
+    set({ activeTimer: updated, leisureConflict: null });
   },
 
   pauseFocus: async () => {
@@ -1054,6 +1108,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? Math.floor((Date.now() - activeTimer.startedAt) / 1000)
         : activeTimer.durationSec - (activeTimer.pausedRemainingSec ?? 0);
 
+    const eligibleForXp =
+      !completedEarly ||
+      clockOverride.fastFocusSeconds !== null ||
+      elapsedSec >= activeTimer.durationSec * 0.5;
+    const earnedXp = eligibleForXp ? XP_REWARDS.FOCUS_BLOCK : 0;
+
     const actualMinutes = completedEarly
       ? Math.max(1, Math.round(elapsedSec / 60))
       : activeTimer.plannedMinutes;
@@ -1082,7 +1142,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       respectedSleep: true,
     });
 
-    await awardXpAndEvaluateBadges(user.id, XP_REWARDS.FOCUS_BLOCK, streakUpdate);
+    await awardXpAndEvaluateBadges(user.id, earnedXp, streakUpdate);
     await enqueueOfflineMutation(user.id, 'focusSession', 'create', { ...session });
 
     const nextDuration = clockOverride.fastFocusSeconds ?? activeTimer.plannedMinutes * 60;
@@ -1100,10 +1160,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       ...refreshed,
       showCompleteModal: true,
-      lastCompletedXp: XP_REWARDS.FOCUS_BLOCK,
+      lastCompletedXp: earnedXp,
       lastCompletedTaskId: linkedId,
     });
-    sendLocalNotification('¡Bloque Focus completado!', `+${XP_REWARDS.FOCUS_BLOCK} XP ganados. Tu racha está protegida.`);
+    if (earnedXp > 0) {
+      sendLocalNotification('¡Bloque Focus completado!', `+${earnedXp} XP ganados. Tu racha está protegida.`);
+    } else {
+      get().pushToast('Bloque cerrado antes del 50% (guardado sin +35 XP).', 'info');
+    }
   },
 
   discardFocusBlock: async () => {
@@ -1136,7 +1200,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().pushToast('Bloque pausado sin penalización.', 'info');
   },
 
-  triggerShieldWarning: async () => {
+  triggerShieldWarning: async (awaySeconds?: number) => {
     const { activeTimer } = get();
     if (!activeTimer || !activeTimer.shieldEnabled || activeTimer.startedAt === null) return;
     const updated: ActiveFocusTimerState = {
@@ -1144,7 +1208,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       interruptionsCount: activeTimer.interruptionsCount + 1,
     };
     await db.activeTimer.put(updated);
-    set({ activeTimer: updated, showShieldModal: true });
+    set({
+      activeTimer: updated,
+      showShieldModal: true,
+      lastAwaySeconds: awaySeconds ?? null,
+    });
   },
 
   startRegenerativeBreak: async () => {
@@ -1279,7 +1347,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const refreshed = await reloadUserStateFromDb(user.id);
     set({ ...refreshed, showCurfewModal: false, curfewDismissedForToday: true });
     get().pushToast(
-      `Descansa bien: ${pendingToday.length} bloque(s) movidos a mañana. Racha protegida.`,
+      pendingToday.length > 0
+        ? `Descansa bien: ${pendingToday.length} bloque(s) movidos a mañana. Racha protegida.`
+        : '¡Día cerrado a tiempo! Descansa bien, tu racha está protegida.',
       'success'
     );
   },

@@ -6,6 +6,7 @@ export function FocusShieldModal() {
   const showShieldModal = useAppStore((s) => s.showShieldModal);
   const setShowShieldModal = useAppStore((s) => s.setShowShieldModal);
   const activeTimer = useAppStore((s) => s.activeTimer);
+  const lastAwaySeconds = useAppStore((s) => s.lastAwaySeconds);
   const pauseFocusAndGoHome = useAppStore((s) => s.pauseFocusAndGoHome);
   const discardFocusBlock = useAppStore((s) => s.discardFocusBlock);
 
@@ -43,8 +44,16 @@ export function FocusShieldModal() {
         </div>
 
         <p className="text-xs leading-relaxed text-[#434655]">
+          {lastAwaySeconds ? (
+            <>
+              Saliste de MicroPlan por <strong>{lastAwaySeconds}s</strong>.{' '}
+            </>
+          ) : null}
           Te faltan aprox. <strong>{remainingMin} min</strong> para completar este bloque. Cambiar de
           contexto o abrir redes ahora interrumpe tu concentración (~15 min en retomarla).
+          {activeTimer && activeTimer.interruptionsCount > 1 ? (
+            <> ({activeTimer.interruptionsCount} avisos en este bloque).</>
+          ) : null}
         </p>
 
         <div className="flex items-start gap-2 rounded-2xl bg-[#E2F7F5] p-3 text-xs font-medium text-[#006A63]">

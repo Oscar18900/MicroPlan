@@ -180,7 +180,9 @@ export function DashboardScreen() {
           {nextStep ? (
             <span className="text-xs font-semibold text-[#434655]">
               {nextStep.scheduledDate === today ? 'Hoy' : nextStep.scheduledDate} ·{' '}
-              {formatTime12h(nextStep.scheduledSlot)} · {nextStep.estimatedMinutes} min
+              {nextStep.estimatedMinutes > 0
+                ? `${nextStep.scheduledSlot ? `${formatTime12h(nextStep.scheduledSlot)} · ` : ''}${nextStep.estimatedMinutes} min`
+                : 'Sin Pomodoro'}
             </span>
           ) : null}
         </div>

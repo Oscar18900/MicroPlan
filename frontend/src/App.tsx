@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useAppStore } from './store/useAppStore';
 import { getCurrentHHmm } from './services/timeService';
+import { distractionShieldBridge } from './services/shieldBridge';
 import { AppShell } from './components/AppShell';
 import { ToastHost } from './components/ToastHost';
 import { DevToolsPanel } from './components/DevToolsPanel';
@@ -16,6 +17,7 @@ import { RebalanceScreen } from './screens/plan/RebalanceScreen';
 import { FocusScreen } from './screens/focus/FocusScreen';
 import { FocusCompleteModal } from './screens/focus/FocusCompleteModal';
 import { FocusShieldModal } from './screens/focus/FocusShieldModal';
+import { LeisureConflictModal } from './screens/focus/LeisureConflictModal';
 import { WellnessScreen } from './screens/wellness/WellnessScreen';
 import { CurfewAlertModal } from './screens/wellness/CurfewAlertModal';
 import { ProfileScreen } from './screens/profile/ProfileScreen';
@@ -26,6 +28,7 @@ export function App() {
   const hydrated = useAppStore((s) => s.hydrated);
   const user = useAppStore((s) => s.user);
   const config = useAppStore((s) => s.config);
+  const activeTimer = useAppStore((s) => s.activeTimer);
   const activeTab = useAppStore((s) => s.activeTab);
   const planSubView = useAppStore((s) => s.planSubView);
   const profileSubView = useAppStore((s) => s.profileSubView);
@@ -33,6 +36,7 @@ export function App() {
   const hydrate = useAppStore((s) => s.hydrate);
   const setOnlineStatus = useAppStore((s) => s.setOnlineStatus);
   const setShowCurfewModal = useAppStore((s) => s.setShowCurfewModal);
+  const triggerShieldWarning = useAppStore((s) => s.triggerShieldWarning);
 
   useEffect(() => {
     void hydrate();
@@ -48,6 +52,19 @@ export function App() {
       window.removeEventListener('offline', onOffline);
     };
   }, [setOnlineStatus]);
+
+  // Global Distraction Shield monitoring (fires on return from background/tab switch)
+  useEffect(() => {
+    const isProtectedFocusRunning =
+      Boolean(activeTimer?.startedAt) &&
+      activeTimer?.mode === 'focus' &&
+      Boolean(activeTimer?.shieldEnabled);
+    if (!isProtectedFocusRunning) return;
+
+    return distractionShieldBridge.startMonitoring((awaySeconds) => {
+      void triggerShieldWarning(awaySeconds);
+    });
+  }, [activeTimer?.startedAt, activeTimer?.mode, activeTimer?.shieldEnabled, triggerShieldWarning]);
 
   // Automatic Nocturnal Curfew Check (every 20s)
   useEffect(() => {
@@ -126,6 +143,7 @@ export function App() {
 
       {/* Global Native Modals (<dialog>) */}
       <FocusShieldModal />
+      <LeisureConflictModal />
       <FocusCompleteModal />
       <CurfewAlertModal />
       <DevToolsPanel />

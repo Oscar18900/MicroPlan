@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   CheckCircle2,
+  Coffee,
   Droplets,
   Pause,
   Play,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { requestNotificationPermission } from '../../services/notifications';
+import { getTodayKey } from '../../services/timeService';
 import type { AmbientSoundType } from '../../types/domain';
 
 function computeRemainingSeconds(
@@ -38,7 +40,9 @@ function formatMMSS(sec: number): string {
 export function FocusScreen() {
   const activeTimer = useAppStore((s) => s.activeTimer);
   const microTasks = useAppStore((s) => s.microTasks);
+  const focusSessions = useAppStore((s) => s.focusSessions);
   const config = useAppStore((s) => s.config);
+  const clockOverride = useAppStore((s) => s.clockOverride);
   const setFocusDuration = useAppStore((s) => s.setFocusDuration);
   const setFocusShield = useAppStore((s) => s.setFocusShield);
   const setFocusSound = useAppStore((s) => s.setFocusSound);
@@ -48,7 +52,7 @@ export function FocusScreen() {
   const pauseFocus = useAppStore((s) => s.pauseFocus);
   const resetFocus = useAppStore((s) => s.resetFocus);
   const completeFocusBlock = useAppStore((s) => s.completeFocusBlock);
-  const triggerShieldWarning = useAppStore((s) => s.triggerShieldWarning);
+  const startRegenerativeBreak = useAppStore((s) => s.startRegenerativeBreak);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
 
   const [remainingSec, setRemainingSec] = useState<number>(() =>
@@ -81,28 +85,21 @@ export function FocusScreen() {
     return () => window.clearInterval(id);
   }, [activeTimer, completeFocusBlock]);
 
-  // Conscious Friction Shield (04.4): listen to tab/app backgrounding while timer runs
-  useEffect(() => {
-    if (!activeTimer) return;
-    const handleVisibility = () => {
-      if (
-        document.visibilityState === 'hidden' &&
-        activeTimer.startedAt !== null &&
-        activeTimer.mode === 'focus' &&
-        activeTimer.shieldEnabled
-      ) {
-        void triggerShieldWarning();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [activeTimer, triggerShieldWarning]);
-
   if (!activeTimer) return null;
 
   const isRunning = activeTimer.startedAt !== null;
   const isBreak = activeTimer.mode === 'break';
   const totalSec = Math.max(1, activeTimer.durationSec);
+  const hasStarted = isRunning || remainingSec < totalSec;
+  const elapsedSec = totalSec - remainingSec;
+  const eligibleForXp =
+    clockOverride.fastFocusSeconds !== null || elapsedSec >= totalSec * 0.5;
+
+  const today = getTodayKey();
+  const completedTodayCount = focusSessions.filter(
+    (s) => s.completed && s.startedAt.slice(0, 10) === today
+  ).length;
+
   const progress = 1 - remainingSec / totalSec;
   const radius = 84;
   const circumference = 2 * Math.PI * radius;
@@ -216,20 +213,19 @@ export function FocusScreen() {
         </button>
       </div>
 
-      {/* Duration selector */}
-      <div className="grid grid-cols-4 gap-2 rounded-2xl bg-[#EAEDFF] p-1">
+      {/* Duration selector (25m / 45m / 50m only — break triggers after completing a block) */}
+      <div className="grid grid-cols-3 gap-2 rounded-2xl bg-[#EAEDFF] p-1">
         {[
           { mins: 25, label: '25m' },
           { mins: 45, label: '45m' },
           { mins: 50, label: '50m' },
-          { mins: 5, label: '5m Pausa' },
         ].map((opt) => {
           const active = activeTimer.plannedMinutes === opt.mins;
           return (
             <button
               key={opt.mins}
               type="button"
-              disabled={isRunning}
+              disabled={hasStarted}
               onClick={() => void setFocusDuration(opt.mins)}
               className={`rounded-xl py-2 text-xs font-bold transition disabled:opacity-60 ${
                 active ? 'bg-white text-[#2563EB] shadow-2xs' : 'text-[#434655]'
@@ -271,7 +267,12 @@ export function FocusScreen() {
               <button
                 key={pt.id}
                 type="button"
-                onClick={() => void openFocusWithTask(pt.id, pt.estimatedMinutes >= 45 ? 45 : 25)}
+                onClick={() =>
+                  void openFocusWithTask(
+                    pt.id,
+                    pt.estimatedMinutes >= 45 ? 45 : 25
+                  )
+                }
                 className="shrink-0 rounded-full bg-[#F2F3FF] px-3 py-1 text-[11px] font-semibold text-[#131B2E] hover:bg-[#E5EEFF]"
               >
                 {pt.title.slice(0, 28)}
@@ -305,7 +306,11 @@ export function FocusScreen() {
               {formatMMSS(remainingSec)}
             </span>
             <span className="mt-0.5 text-[11px] font-bold tracking-wider text-[#2563EB] uppercase">
-              {isRunning ? 'Enfoque activo' : 'Listo para iniciar'}
+              {isRunning
+                ? 'Enfoque activo'
+                : hasStarted
+                  ? 'En pausa'
+                  : 'Listo para iniciar'}
             </span>
           </div>
         </div>
@@ -325,32 +330,47 @@ export function FocusScreen() {
               type="button"
               onClick={() => {
                 void requestNotificationPermission();
-                void startOrResumeFocus();
+                void startOrResumeFocus(false);
               }}
               className="flex items-center justify-center gap-1.5 rounded-2xl bg-[#2563EB] py-3 text-sm font-bold text-white shadow-sm hover:bg-[#004AC6]"
             >
               <Play className="h-4 w-4 fill-current" />
-              Iniciar
+              {hasStarted ? 'Reanudar' : 'Iniciar'}
             </button>
           )}
           <button
             type="button"
+            disabled={!hasStarted}
             onClick={() => void resetFocus()}
-            className="flex items-center justify-center gap-1.5 rounded-2xl border border-[#E5E7F3] bg-white py-3 text-sm font-bold text-[#434655]"
+            className="flex items-center justify-center gap-1.5 rounded-2xl border border-[#E5E7F3] bg-white py-3 text-sm font-bold text-[#434655] disabled:opacity-45"
           >
             <RotateCcw className="h-4 w-4" />
             Reiniciar
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void completeFocusBlock(true)}
-          className="flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#131B2E] py-3 text-xs font-bold text-white"
-        >
-          <Sparkles className="h-4 w-4" />
-          Terminar bloque (+35 XP)
-        </button>
+        {/* Only show "Terminar bloque" once the timer has actually started */}
+        {hasStarted ? (
+          <button
+            type="button"
+            onClick={() => void completeFocusBlock(true)}
+            className={`flex w-full items-center justify-center gap-1.5 rounded-2xl py-3 text-xs font-bold text-white ${
+              eligibleForXp ? 'bg-[#131B2E]' : 'bg-[#434655]'
+            }`}
+          >
+            <Sparkles className="h-4 w-4" />
+            {eligibleForXp ? 'Terminar bloque (+35 XP)' : 'Terminar antes (sin +35 XP)'}
+          </button>
+        ) : completedTodayCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => void startRegenerativeBreak()}
+            className="flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#E2F7F5] py-2.5 text-xs font-bold text-[#006A63]"
+          >
+            <Coffee className="h-3.5 w-3.5" />
+            Tomar pausa regenerativa de 5 min
+          </button>
+        ) : null}
       </section>
 
       {/* Conscious Friction Shield info card */}
@@ -358,7 +378,13 @@ export function FocusScreen() {
         <div className="flex items-center justify-between">
           <span className="text-xs font-extrabold text-[#131B2E] flex items-center gap-1.5">
             <Shield className="h-4 w-4 text-[#006A63]" />
-            Escudo Anti-Distracciones ({config?.shieldRigidity === 'strict' ? 'Estricto' : config?.shieldRigidity === 'soft' ? 'Suave' : 'Equilibrado'})
+            Escudo Anti-Distracciones (
+            {config?.shieldRigidity === 'strict'
+              ? 'Estricto'
+              : config?.shieldRigidity === 'soft'
+                ? 'Suave'
+                : 'Equilibrado'}
+            )
           </span>
           <span
             className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
@@ -371,7 +397,8 @@ export function FocusScreen() {
           </span>
         </div>
         <p className="text-[11px] text-[#434655]">
-          Te avisa antes de salir a redes o cambiar de pestaña durante el bloque. Sugerencia: activa No Molestar en tu teléfono.
+          Detecta cambios de pestaña dentro de la app o al volver de otras apps durante un bloque
+          activo. En versión APK aplicará bloqueo nativo sobre redes sociales.
         </p>
       </section>
 

@@ -1,4 +1,5 @@
 export type AuthProvider = 'local' | 'google';
+export type UserRole = 'student' | 'admin';
 export type ShieldRigidity = 'soft' | 'balanced' | 'strict';
 export type EmergencyMinutes = 30 | 45 | 60;
 export type InferredDeliveryType = 'practice' | 'essay' | 'exam' | 'presentation' | 'project';
@@ -19,6 +20,7 @@ export interface User {
   email: string;
   passwordHash?: string;
   authProvider: AuthProvider;
+  role?: UserRole;
   career: string;
   semester: string;
   xp: number;
@@ -82,6 +84,7 @@ export interface Delivery {
   attachmentMeta?: AttachmentMeta;
   createdVia: 'ai' | 'manual';
   status: 'active' | 'completed';
+  completionBonusAwarded?: boolean;
   createdAt: string;
 }
 
@@ -92,12 +95,21 @@ export interface MicroTask {
   title: string;
   scheduledDate: string; // YYYY-MM-DD
   scheduledSlot: string; // e.g. "16:00"
-  estimatedMinutes: number; // 25 or 50
+  estimatedMinutes: number; // 0 = Sin Pomodoro (checklist), or 15/25/50
+  usePomodoro?: boolean;
   blocksCount: number;
   status: 'pending' | 'completed' | 'rescheduled';
   completedVia: 'focus' | 'direct' | null;
   completedAt: string | null;
   rationale?: string;
+}
+
+export interface LeisureConflictInfo {
+  type: 'during_leisure' | 'overlaps_leisure';
+  leisureStart: string;
+  leisureEnd: string;
+  minutesUntilLeisure: number;
+  rigidity: ShieldRigidity;
 }
 
 export interface FocusSession {
