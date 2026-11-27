@@ -59,6 +59,7 @@ export function NewDeliveryScreen() {
   const [attachmentMeta, setAttachmentMeta] = useState<AttachmentMeta | undefined>(
     initial.attachmentMeta
   );
+  const [attachmentFile, setAttachmentFile] = useState<File | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -105,6 +106,7 @@ export function NewDeliveryScreen() {
       fileSizeBytes: file.size,
       extractedExcerpt,
     });
+    setAttachmentFile(file);
     e.target.value = '';
   };
 
@@ -137,6 +139,7 @@ export function NewDeliveryScreen() {
       'Materia';
 
     clearDraftStorage();
+    setPendingAiDraft(null);
     setPlanSubView('analyzing_ai');
     const proposal = await aiPlannerAdapter.breakdownDelivery({
       subjectName,
@@ -144,6 +147,7 @@ export function NewDeliveryScreen() {
       dueDate,
       instructionsText: instructionsText.trim(),
       attachmentMeta,
+      attachmentFile,
       config,
       classBlocks,
       existingMicroTasks: microTasks,

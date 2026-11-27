@@ -5,9 +5,17 @@ node_modules/
 
 # Build outputs
 dist/
+dev-dist/
 dist-ssr/
 build/
 *.local
+
+# Databases & uploads
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+backend/uploads/
 
 # Environment files
 .env

@@ -6,19 +6,24 @@ export function AiAnalyzingScreen() {
   const pendingAiDraft = useAppStore((s) => s.pendingAiDraft);
   const setPlanSubView = useAppStore((s) => s.setPlanSubView);
   const [stage, setStage] = useState(1);
+  const [minDelayDone, setMinDelayDone] = useState(false);
 
   useEffect(() => {
     const t1 = setTimeout(() => setStage(2), 420);
     const t2 = setTimeout(() => setStage(3), 860);
-    const t3 = setTimeout(() => {
-      setPlanSubView('review_ai');
-    }, 1350);
+    const t3 = setTimeout(() => setMinDelayDone(true), 1200);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [setPlanSubView]);
+  }, []);
+
+  useEffect(() => {
+    if (minDelayDone && pendingAiDraft) {
+      setPlanSubView('review_ai');
+    }
+  }, [minDelayDone, pendingAiDraft, setPlanSubView]);
 
   return (
     <div className="space-y-5 px-4 py-8">
@@ -88,10 +93,11 @@ export function AiAnalyzingScreen() {
 
         <button
           type="button"
+          disabled={!pendingAiDraft}
           onClick={() => setPlanSubView('review_ai')}
-          className="w-full rounded-2xl bg-[#2563EB] py-3 text-xs font-bold text-white"
+          className="w-full rounded-2xl bg-[#2563EB] py-3 text-xs font-bold text-white disabled:opacity-50"
         >
-          Ver propuesta generada →
+          {pendingAiDraft ? 'Ver propuesta generada →' : 'Esperando respuesta del agente...'}
         </button>
       </section>
     </div>

@@ -1,5 +1,7 @@
-import { Clock, Database, FastForward, FlaskConical, Moon, RotateCcw, WifiOff, X } from 'lucide-react';
+import { useState } from 'react';
+import { BarChart3, Clock, Database, FastForward, FlaskConical, Moon, RefreshCw, RotateCcw, WifiOff, X } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import { apiTelemetrySummary, type TelemetrySummary } from '../services/apiClient';
 import { getCurrentHHmm, getTodayKey } from '../services/timeService';
 import { ModalDialog } from './ModalDialog';
 
@@ -12,7 +14,26 @@ export function DevToolsPanel() {
   const resetAllLocalData = useAppStore((s) => s.resetAllLocalData);
   const setShowCurfewModal = useAppStore((s) => s.setShowCurfewModal);
   const pendingSyncCount = useAppStore((s) => s.pendingSyncCount);
-  const simulateSyncFlush = useAppStore((s) => s.simulateSyncFlush);
+  const syncWithBackend = useAppStore((s) => s.syncWithBackend);
+  const pushToast = useAppStore((s) => s.pushToast);
+
+  const [telemetry, setTelemetry] = useState<TelemetrySummary | null>(null);
+  const [loadingTelemetry, setLoadingTelemetry] = useState(false);
+
+  const handleLoadTelemetry = async () => {
+    setLoadingTelemetry(true);
+    try {
+      const data = await apiTelemetrySummary();
+      setTelemetry(data);
+    } catch (err) {
+      pushToast(
+        err instanceof Error ? err.message : 'No se pudo cargar telemetría del servidor.',
+        'warning'
+      );
+    } finally {
+      setLoadingTelemetry(false);
+    }
+  };
 
   return (
     <ModalDialog
@@ -159,12 +180,41 @@ export function DevToolsPanel() {
               </button>
               <button
                 type="button"
-                onClick={() => void simulateSyncFlush()}
-                className="rounded-xl border border-[#E5E7F3] bg-[#F2F3FF] px-3 py-2 font-medium text-[#131B2E]"
+                onClick={() => void syncWithBackend()}
+                className="flex items-center justify-center gap-1 rounded-xl border border-[#E5E7F3] bg-[#F2F3FF] px-3 py-2 font-medium text-[#131B2E]"
               >
-                Limpiar cola sync
+                <RefreshCw className="h-3.5 w-3.5" />
+                Sincronizar ahora
               </button>
             </div>
+            <button
+              type="button"
+              disabled={loadingTelemetry}
+              onClick={() => void handleLoadTelemetry()}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#2563EB]/25 bg-[#E5EEFF] px-3 py-2 font-bold text-[#004AC6]"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              {loadingTelemetry ? 'Consultando SQLite/Cloud...' : 'Ver telemetría piloto (Backend)'}
+            </button>
+            {telemetry ? (
+              <div className="rounded-xl bg-[#FAF8FF] border border-[#E5E7F3] p-2.5 text-[11px] space-y-1">
+                <p>
+                  Usuarios: <strong>{telemetry.totalUsers}</strong> (activos:{' '}
+                  <strong>{telemetry.activeUsers}</strong>) · Entregas:{' '}
+                  <strong>{telemetry.totalDeliveries}</strong>
+                </p>
+                <p>
+                  Desgloses Groq IA: <strong>{telemetry.aiBreakdownsCount}</strong> · Cumplimiento:{' '}
+                  <strong>{telemetry.microTaskCompletionRatePct}%</strong>
+                </p>
+                <p>
+                  Sueño promedio: <strong>{telemetry.avgSleepHours}h</strong> · Focus sin salida:{' '}
+                  <strong>
+                    {telemetry.zeroDistractionBlocks}/{telemetry.completedFocusBlocks}
+                  </strong>
+                </p>
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={() => void resetAllLocalData()}

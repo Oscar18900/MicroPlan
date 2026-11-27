@@ -1,6 +1,29 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Eye, EyeOff, Lock, Mail, Moon, User as UserIcon } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
+
+interface GoogleCredentialResponse {
+  credential?: string;
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: {
+          initialize: (cfg: {
+            client_id: string;
+            callback: (res: GoogleCredentialResponse) => void;
+          }) => void;
+          renderButton: (
+            el: HTMLElement,
+            opts: { theme?: string; size?: string; width?: number; text?: string; shape?: string }
+          ) => void;
+        };
+      };
+    };
+  }
+}
 
 export function AuthScreen() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -9,25 +32,80 @@ export function AuthScreen() {
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState<{ name: boolean; email: boolean; password: boolean }>({
     name: false,
     email: false,
     password: false,
   });
 
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const googleClientId = useAppStore((s) => s.googleClientId);
   const registerLocal = useAppStore((s) => s.registerLocal);
   const loginLocal = useAppStore((s) => s.loginLocal);
+  const loginWithGoogleCredential = useAppStore((s) => s.loginWithGoogleCredential);
   const loginWithGoogleLocal = useAppStore((s) => s.loginWithGoogleLocal);
+
+  useEffect(() => {
+    if (!googleClientId || !googleBtnRef.current) return;
+
+    const initGoogleButton = () => {
+      if (!window.google?.accounts?.id || !googleBtnRef.current) return;
+      googleBtnRef.current.innerHTML = '';
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: (resp) => {
+          if (resp.credential) {
+            void loginWithGoogleCredential(resp.credential).then((res) => {
+              if (!res.ok) setErrorMsg(res.error ?? 'Error en Google OAuth.');
+            });
+          }
+        },
+      });
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: 'outline',
+        size: 'large',
+        width: 300,
+        text: mode === 'register' ? 'signup_with' : 'signin_with',
+        shape: 'pill',
+      });
+    };
+
+    if (window.google?.accounts?.id) {
+      initGoogleButton();
+      return;
+    }
+
+    const scriptId = 'google-gsi-script';
+    let script = document.getElementById(scriptId) as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+    script.addEventListener('load', initGoogleButton);
+    return () => {
+      script?.removeEventListener('load', initGoogleButton);
+    };
+  }, [googleClientId, mode, loginWithGoogleCredential]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-    if (mode === 'register') {
-      const res = await registerLocal(name, email, password);
-      if (!res.ok) setErrorMsg(res.error ?? 'Error al registrar.');
-    } else {
-      const res = await loginLocal(email, password);
-      if (!res.ok) setErrorMsg(res.error ?? 'No pudimos iniciar sesión.');
+    setSubmitting(true);
+    try {
+      if (mode === 'register') {
+        const res = await registerLocal(name, email, password);
+        if (!res.ok) setErrorMsg(res.error ?? 'Error al registrar.');
+      } else {
+        const res = await loginLocal(email, password);
+        if (!res.ok) setErrorMsg(res.error ?? 'No pudimos iniciar sesión.');
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -228,46 +306,65 @@ export function AuthScreen() {
 
             <button
               type="submit"
-              className="w-full rounded-2xl bg-[#2563EB] py-3 text-sm font-bold text-white shadow-sm hover:bg-[#004AC6] transition"
+              disabled={submitting}
+              className="w-full rounded-2xl bg-[#2563EB] py-3 text-sm font-bold text-white shadow-sm hover:bg-[#004AC6] transition disabled:opacity-60"
             >
-              {mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta y configurar perfil'}
+              {submitting
+                ? 'Conectando...'
+                : mode === 'login'
+                  ? 'Iniciar sesión'
+                  : 'Crear cuenta y configurar perfil'}
             </button>
           </form>
 
           <div className="my-4 flex items-center gap-3">
             <div className="h-px flex-1 bg-[#E5E7F3]" />
-            <span className="text-[11px] font-medium text-[#737686]">o acceso rápido local</span>
+            <span className="text-[11px] font-medium text-[#737686]">
+              {googleClientId ? 'o continúa con Google' : 'o acceso rápido'}
+            </span>
             <div className="h-px flex-1 bg-[#E5E7F3]" />
           </div>
 
-          <button
-            type="button"
-            onClick={() => void loginWithGoogleLocal()}
-            className="flex w-full items-center justify-center gap-2.5 rounded-2xl border border-[#E5E7F3] bg-white py-2.5 text-sm font-semibold text-[#131B2E] hover:bg-[#F2F3FF] transition"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                fill="#4285F4"
-                d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
-              />
-              <path
-                fill="#34A853"
-                d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
-              />
-              <path
-                fill="#FBBC05"
-                d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
-              />
-              <path
-                fill="#EA4335"
-                d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
-              />
-            </svg>
-            Continuar con Google (sesión local)
-          </button>
-          <p className="mt-2 text-center text-[10px] text-[#737686]">
-            En Fase 2 guarda todo localmente en tu dispositivo (IndexedDB).
-          </p>
+          {googleClientId ? (
+            <div className="flex flex-col items-center gap-2">
+              <div ref={googleBtnRef} className="flex justify-center" />
+              <p className="text-center text-[10px] text-[#737686]">
+                Google OAuth verificado por tu servidor MicroPlan.
+              </p>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => void loginWithGoogleLocal()}
+                className="flex w-full items-center justify-center gap-2.5 rounded-2xl border border-[#E5E7F3] bg-white py-2.5 text-sm font-semibold text-[#131B2E] hover:bg-[#F2F3FF] transition"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
+                  />
+                </svg>
+                Continuar con Google (modo local)
+              </button>
+              <p className="mt-2 text-center text-[10px] text-[#737686]">
+                Para activar Google OAuth real, pega tu <code>GOOGLE_CLIENT_ID</code> en{' '}
+                <code>backend/.env</code>.
+              </p>
+            </>
+          )}
         </div>
 
         <p className="mt-5 text-center text-xs text-[#434655]">

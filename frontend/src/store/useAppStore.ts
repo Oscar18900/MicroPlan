@@ -41,7 +41,20 @@ import type {
   UserWellnessConfig,
 } from '../types/domain';
 
-export const DEV_ALLOW_LAB_FOR_ALL = true;
+import {
+  apiBootstrap,
+  apiGoogleLogin,
+  apiHealth,
+  ApiHttpError,
+  apiLogin,
+  apiRegister,
+  apiSyncSnapshot,
+  getAuthToken,
+  setAuthToken,
+  type ServerSnapshot,
+} from '../services/apiClient';
+
+export const DEV_ALLOW_LAB_FOR_ALL = false;
 
 export function canAccessLab(user: User | null): boolean {
   return DEV_ALLOW_LAB_FOR_ALL || user?.role === 'admin';
@@ -70,6 +83,8 @@ export interface PendingAiDraft {
 interface AppState {
   hydrated: boolean;
   isOnline: boolean;
+  backendConnected: boolean;
+  googleClientId: string | null;
   pendingSyncCount: number;
   user: User | null;
   config: UserWellnessConfig | null;
@@ -120,8 +135,10 @@ interface AppState {
   // Auth
   registerLocal: (name: string, email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   loginLocal: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  loginWithGoogleCredential: (idToken: string) => Promise<{ ok: boolean; error?: string }>;
   loginWithGoogleLocal: (name?: string, email?: string) => Promise<void>;
   logout: () => Promise<void>;
+  syncWithBackend: () => Promise<void>;
 
   // Onboarding
   updateOnboardingProfile: (data: {
@@ -346,9 +363,51 @@ async function awardXpAndEvaluateBadges(
   return { newlyUnlocked, updatedUser: updatedUser ?? null };
 }
 
+async function applyServerSnapshotToDexie(snapshot: ServerSnapshot): Promise<void> {
+  const userId = snapshot.user.id;
+  await db.transaction(
+    'rw',
+    [
+      db.users,
+      db.wellnessConfigs,
+      db.subjects,
+      db.classBlocks,
+      db.deliveries,
+      db.microTasks,
+      db.focusSessions,
+      db.sleepLogs,
+      db.badgeUnlocks,
+    ],
+    async () => {
+      await db.users.put(snapshot.user);
+      if (snapshot.config) {
+        await db.wellnessConfigs.put(snapshot.config);
+      }
+      await db.subjects.where('userId').equals(userId).delete();
+      await db.classBlocks.where('userId').equals(userId).delete();
+      await db.deliveries.where('userId').equals(userId).delete();
+      await db.microTasks.where('userId').equals(userId).delete();
+      await db.focusSessions.where('userId').equals(userId).delete();
+      await db.sleepLogs.where('userId').equals(userId).delete();
+      await db.badgeUnlocks.where('userId').equals(userId).delete();
+
+      if (snapshot.subjects.length) await db.subjects.bulkPut(snapshot.subjects);
+      if (snapshot.classBlocks.length) await db.classBlocks.bulkPut(snapshot.classBlocks);
+      if (snapshot.deliveries.length) await db.deliveries.bulkPut(snapshot.deliveries);
+      if (snapshot.microTasks.length) await db.microTasks.bulkPut(snapshot.microTasks);
+      if (snapshot.focusSessions.length) await db.focusSessions.bulkPut(snapshot.focusSessions);
+      if (snapshot.sleepLogs.length) await db.sleepLogs.bulkPut(snapshot.sleepLogs);
+      if (snapshot.badgeUnlocks.length) await db.badgeUnlocks.bulkPut(snapshot.badgeUnlocks);
+    }
+  );
+  await setSetting('currentUserId', userId);
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   hydrated: false,
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  backendConnected: false,
+  googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || null,
   pendingSyncCount: 0,
   user: null,
   config: null,
@@ -380,6 +439,36 @@ export const useAppStore = create<AppState>((set, get) => ({
   toasts: [],
 
   hydrate: async () => {
+    // Probe backend health (non-blocking for offline-first)
+    try {
+      const health = await apiHealth();
+      set({
+        backendConnected: health.ok,
+        googleClientId:
+          health.googleClientId ||
+          (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ||
+          null,
+      });
+    } catch {
+      set({ backendConnected: false });
+    }
+
+    const token = getAuthToken();
+    if (token && (typeof navigator === 'undefined' || navigator.onLine)) {
+      try {
+        const { snapshot } = await apiBootstrap();
+        await applyServerSnapshotToDexie(snapshot);
+        const data = await reloadUserStateFromDb(snapshot.user.id);
+        set({ hydrated: true, backendConnected: true, ...data });
+        return;
+      } catch (err) {
+        if (err instanceof ApiHttpError && err.status === 401) {
+          setAuthToken(null);
+          await setSetting('currentUserId', null);
+        }
+      }
+    }
+
     const activeUserId = await getSetting('currentUserId');
     if (!activeUserId) {
       set({ hydrated: true, user: null });
@@ -391,7 +480,39 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setOnlineStatus: (online) => {
     const sim = get().clockOverride.simulateOffline;
-    set({ isOnline: sim ? false : online });
+    const effectiveOnline = sim ? false : online;
+    set({ isOnline: effectiveOnline });
+    if (effectiveOnline) {
+      void get().syncWithBackend();
+    }
+  },
+
+  syncWithBackend: async () => {
+    const { user, clockOverride } = get();
+    const token = getAuthToken();
+    const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    if (!user || !token || !online || clockOverride.simulateOffline) return;
+
+    try {
+      const current = await reloadUserStateFromDb(user.id);
+      if (!current.user) return;
+      await apiSyncSnapshot({
+        user: current.user,
+        config: current.config,
+        subjects: current.subjects,
+        classBlocks: current.classBlocks,
+        deliveries: current.deliveries,
+        microTasks: current.microTasks,
+        focusSessions: current.focusSessions,
+        sleepLogs: current.sleepLogs,
+        badgeUnlocks: current.badgeUnlocks,
+      });
+      await db.syncQueue.where('synced').equals(0).modify({ synced: 1 });
+      const pendingSyncCount = await db.syncQueue.where('synced').equals(0).count();
+      set({ pendingSyncCount, backendConnected: true });
+    } catch {
+      set({ backendConnected: false });
+    }
   },
 
   pushToast: (text, tone = 'info') => {
@@ -443,56 +564,96 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   registerLocal: async (name, email, password) => {
     const cleanEmail = email.trim().toLowerCase();
-    const existing = await db.users.where('email').equals(cleanEmail).first();
-    if (existing) {
-      return { ok: false, error: 'Ya existe una cuenta registrada con ese correo.' };
+    try {
+      const { token, snapshot } = await apiRegister(name.trim(), cleanEmail, password);
+      setAuthToken(token);
+      await applyServerSnapshotToDexie(snapshot);
+      const data = await reloadUserStateFromDb(snapshot.user.id);
+      set({ ...data, backendConnected: true, activeTab: 'dashboard' });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ApiHttpError) {
+        return { ok: false, error: err.message };
+      }
+      // Offline fallback: register locally in IndexedDB
+      const existing = await db.users.where('email').equals(cleanEmail).first();
+      if (existing) {
+        return { ok: false, error: 'Ya existe una cuenta registrada con ese correo.' };
+      }
+      const userId = `usr_${Date.now().toString(36)}`;
+      const newUser: User = {
+        id: userId,
+        name: name.trim(),
+        email: cleanEmail,
+        passwordHash: btoa(unescape(encodeURIComponent(password))),
+        authProvider: 'local',
+        role: 'student',
+        career: '',
+        semester: '4°–6°',
+        xp: 0,
+        level: 1,
+        currentStreak: 0,
+        bestStreak: 0,
+        lastStreakDate: null,
+        onboardingCompleted: false,
+        createdAt: new Date().toISOString(),
+      };
+      await db.users.put(newUser);
+      await db.wellnessConfigs.put(defaultWellnessConfig(userId));
+      await db.activeTimer.put(defaultTimer(userId));
+      await enqueueOfflineMutation(userId, 'user', 'create', { email: cleanEmail });
+      await setSetting('currentUserId', userId);
+      const data = await reloadUserStateFromDb(userId);
+      set({ ...data, backendConnected: false, activeTab: 'dashboard' });
+      get().pushToast('Sin conexión al servidor: cuenta creada localmente.', 'warning');
+      return { ok: true };
     }
-    const userId = `usr_${Date.now().toString(36)}`;
-    const newUser: User = {
-      id: userId,
-      name: name.trim(),
-      email: cleanEmail,
-      passwordHash: btoa(unescape(encodeURIComponent(password))),
-      authProvider: 'local',
-      role: 'admin',
-      career: '',
-      semester: '4°–6°',
-      xp: 0,
-      level: 1,
-      currentStreak: 0,
-      bestStreak: 0,
-      lastStreakDate: null,
-      onboardingCompleted: false,
-      createdAt: new Date().toISOString(),
-    };
-    const config = defaultWellnessConfig(userId);
-    const timer = defaultTimer(userId);
-
-    await db.users.put(newUser);
-    await db.wellnessConfigs.put(config);
-    await db.activeTimer.put(timer);
-    await enqueueOfflineMutation(userId, 'user', 'create', { email: cleanEmail });
-    await setSetting('currentUserId', userId);
-
-    const data = await reloadUserStateFromDb(userId);
-    set({ ...data, activeTab: 'dashboard' });
-    return { ok: true };
   },
 
   loginLocal: async (email, password) => {
     const cleanEmail = email.trim().toLowerCase();
-    const user = await db.users.where('email').equals(cleanEmail).first();
-    if (!user) {
-      return { ok: false, error: 'No encontramos una cuenta local con ese correo. Regístrate primero.' };
+    try {
+      const { token, snapshot } = await apiLogin(cleanEmail, password);
+      setAuthToken(token);
+      await applyServerSnapshotToDexie(snapshot);
+      const data = await reloadUserStateFromDb(snapshot.user.id);
+      set({ ...data, backendConnected: true, activeTab: 'dashboard' });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ApiHttpError) {
+        return { ok: false, error: err.message };
+      }
+      // Offline fallback: check local IndexedDB cache
+      const user = await db.users.where('email').equals(cleanEmail).first();
+      if (!user) {
+        return { ok: false, error: 'No encontramos una cuenta local ni conexión con el servidor.' };
+      }
+      const encoded = btoa(unescape(encodeURIComponent(password)));
+      if (user.passwordHash && user.passwordHash !== encoded) {
+        return { ok: false, error: 'Contraseña incorrecta.' };
+      }
+      await setSetting('currentUserId', user.id);
+      const data = await reloadUserStateFromDb(user.id);
+      set({ ...data, backendConnected: false, activeTab: 'dashboard' });
+      get().pushToast('Sesión iniciada en modo offline.', 'info');
+      return { ok: true };
     }
-    const encoded = btoa(unescape(encodeURIComponent(password)));
-    if (user.passwordHash && user.passwordHash !== encoded) {
-      return { ok: false, error: 'Contraseña incorrecta.' };
+  },
+
+  loginWithGoogleCredential: async (idToken) => {
+    try {
+      const { token, snapshot } = await apiGoogleLogin(idToken);
+      setAuthToken(token);
+      await applyServerSnapshotToDexie(snapshot);
+      const data = await reloadUserStateFromDb(snapshot.user.id);
+      set({ ...data, backendConnected: true, activeTab: 'dashboard' });
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'No pudimos iniciar sesión con Google.',
+      };
     }
-    await setSetting('currentUserId', user.id);
-    const data = await reloadUserStateFromDb(user.id);
-    set({ ...data, activeTab: 'dashboard' });
-    return { ok: true };
   },
 
   loginWithGoogleLocal: async (name = 'Estudiante BUAP', email = 'estudiante@correo.buap.mx') => {
@@ -505,7 +666,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         name,
         email: cleanEmail,
         authProvider: 'google',
-        role: 'admin',
+        role: 'student',
         career: '',
         semester: '4°–6°',
         xp: 0,
@@ -527,6 +688,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   logout: async () => {
     audioEngine.stop();
+    setAuthToken(null);
     await setSetting('currentUserId', null);
     set({
       user: null,
@@ -671,6 +833,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await db.users.update(user.id, { onboardingCompleted: true });
     const refreshed = await reloadUserStateFromDb(user.id);
     set({ ...refreshed, activeTab: 'dashboard' });
+    void get().syncWithBackend();
   },
 
   addSubject: async (name, colorHex) => {
@@ -687,6 +850,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
     get().pushToast(`Materia "${subject.name}" guardada.`, 'success');
+    void get().syncWithBackend();
     return subject;
   },
 
@@ -698,6 +862,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await enqueueOfflineMutation(user.id, 'subject', 'delete', { id: subjectId });
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
+    void get().syncWithBackend();
   },
 
   addClassBlock: async (block) => {
@@ -713,6 +878,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
     get().pushToast('Bloque agregado al horario.', 'success');
+    void get().syncWithBackend();
   },
 
   deleteClassBlock: async (blockId) => {
@@ -722,6 +888,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await enqueueOfflineMutation(user.id, 'classBlock', 'delete', { id: blockId });
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
+    void get().syncWithBackend();
   },
 
   confirmAiDelivery: async (draft) => {
@@ -768,6 +935,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (newlyUnlocked.length > 0) {
       get().pushToast('¡Nueva medalla desbloqueada: Planificador IA!', 'success');
     }
+    void get().syncWithBackend();
   },
 
   createManualDelivery: async (input) => {
@@ -811,6 +979,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const refreshed = await reloadUserStateFromDb(user.id);
     set({ ...refreshed, planSubView: 'list', autoExpandDeliveryId: deliveryId });
     get().pushToast('Entrega creada. Agrega tus micro-metas paso a paso.', 'success');
+    void get().syncWithBackend();
   },
 
   addManualMicroTask: async (deliveryId, title, minutes, scheduledDate) => {
@@ -840,6 +1009,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       usePomodoro ? `Micro-meta agregada (${minutes} min).` : 'Micro-meta agregada (sin Pomodoro).',
       'success'
     );
+    void get().syncWithBackend();
   },
 
   toggleMicroTaskComplete: async (microTaskId, via = 'direct') => {
@@ -898,6 +1068,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
+    void get().syncWithBackend();
 
     if (completing && via === 'direct') {
       const msg = shouldAwardDeliveryBonus
@@ -916,6 +1087,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
     get().pushToast('Entrega eliminada.', 'info');
+    void get().syncWithBackend();
   },
 
   applyRebalanceMoves: async (moves) => {
@@ -934,6 +1106,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const refreshed = await reloadUserStateFromDb(user.id);
     set({ ...refreshed, planSubView: 'list' });
     get().pushToast(`Rebalanceo aplicado: ${moves.length} bloque(s) movidos.`, 'success');
+    void get().syncWithBackend();
   },
 
   openFocusWithTask: async (microTaskId, plannedMinutes) => {
@@ -1163,6 +1336,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       lastCompletedXp: earnedXp,
       lastCompletedTaskId: linkedId,
     });
+    void get().syncWithBackend();
     if (earnedXp > 0) {
       sendLocalNotification('¡Bloque Focus completado!', `+${earnedXp} XP ganados. Tu racha está protegida.`);
     } else {
@@ -1290,6 +1464,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
+    void get().syncWithBackend();
     get().pushToast(
       shouldAwardXp
         ? `Check-in guardado (${sleptHours}h) · +${XP_REWARDS.SLEEP_HYGIENE} XP`
@@ -1346,6 +1521,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const refreshed = await reloadUserStateFromDb(user.id);
     set({ ...refreshed, showCurfewModal: false, curfewDismissedForToday: true });
+    void get().syncWithBackend();
     get().pushToast(
       pendingToday.length > 0
         ? `Descansa bien: ${pendingToday.length} bloque(s) movidos a mañana. Racha protegida.`
@@ -1390,6 +1566,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const refreshed = await reloadUserStateFromDb(user.id);
     set({ ...refreshed, showCurfewModal: false, curfewDismissedForToday: true });
+    void get().syncWithBackend();
     get().pushToast(
       `Modo Emergencia activo (+${cap.allowedMinutes}m). Límite absoluto: ${cap.bedtimeHardFloorTime}.`,
       'warning'
@@ -1405,6 +1582,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const refreshed = await reloadUserStateFromDb(user.id);
     set(refreshed);
     get().pushToast('Preferencias actualizadas.', 'success');
+    void get().syncWithBackend();
   },
 
   updateClockSim: async (partial) => {
@@ -1432,11 +1610,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     await loadBuapDemoDataset(user.id);
     const refreshed = await reloadUserStateFromDb(user.id);
     set({ ...refreshed, showDevTools: false, activeTab: 'dashboard' });
-    get().pushToast('Dataset de prueba BUAP cargado en IndexedDB.', 'success');
+    void get().syncWithBackend();
+    get().pushToast('Dataset de prueba BUAP cargado y sincronizado.', 'success');
   },
 
   resetAllLocalData: async () => {
     audioEngine.stop();
+    setAuthToken(null);
     await db.delete();
     await db.open();
     setClockOverride({ dayOffset: 0, timeHHmm: null, fastFocusSeconds: null, simulateOffline: false });

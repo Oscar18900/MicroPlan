@@ -191,6 +191,8 @@ export interface AiBreakdownResponse {
   warnings: string[];
   respectsConstraints: boolean;
   traceabilitySummary: string;
+  provider?: 'groq' | 'local';
+  modelUsed?: string;
 }
 
 export interface RebalanceMove {

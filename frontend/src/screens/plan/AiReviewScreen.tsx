@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, FileText, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { useAppStore } from '../../store/useAppStore';
 import { aiPlannerAdapter } from '../../services/adapter';
@@ -16,6 +16,12 @@ export function AiReviewScreen() {
   const [items, setItems] = useState<AiProposalMicroTask[]>(
     pendingAiDraft?.proposal.microTasks ?? []
   );
+
+  useEffect(() => {
+    if (pendingAiDraft?.proposal.microTasks) {
+      setItems(pendingAiDraft.proposal.microTasks);
+    }
+  }, [pendingAiDraft]);
 
   if (!pendingAiDraft) {
     return (
@@ -100,7 +106,20 @@ export function AiReviewScreen() {
 
       {/* Traceability & Constraint Respect Card */}
       <section className="rounded-3xl border border-[#E5E7F3] bg-white p-4 space-y-2.5">
-        <h2 className="text-sm font-extrabold text-[#131B2E]">{pendingAiDraft.title}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-extrabold text-[#131B2E]">{pendingAiDraft.title}</h2>
+          <span
+            className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+              pendingAiDraft.proposal.provider === 'groq'
+                ? 'bg-[#E5EEFF] text-[#004AC6]'
+                : 'bg-[#F2F3FF] text-[#434655]'
+            }`}
+          >
+            {pendingAiDraft.proposal.provider === 'groq'
+              ? `Groq IA · ${pendingAiDraft.proposal.modelUsed ?? 'cloud'}`
+              : 'Modo Local Offline'}
+          </span>
+        </div>
         <p className="text-xs text-[#434655]">
           {pendingAiDraft.subjectName} · Límite {pendingAiDraft.dueDate}
         </p>

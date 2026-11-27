@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String   @id @default(cuid())
+  name                String
+  email               String   @unique
+  passwordHash        String?
+  authProvider        String   @default("local")
+  googleSub           String?  @unique
+  role                String   @default("student")
+  career              String   @default("")
+  semester            String   @default("4°–6°")
+  xp                  Int      @default(0)
+  level               Int      @default(1)
+  currentStreak       Int      @default(0)
+  bestStreak          Int      @default(0)
+  lastStreakDate      String?
+  onboardingCompleted Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  wellnessConfig UserWellnessConfig?
+  subjects       Subject[]
+  classBlocks    ClassBlock[]
+  deliveries     Delivery[]
+  microTasks     MicroTask[]
+  focusSessions  FocusSession[]
+  sleepLogs      SleepLog[]
+  badgeUnlocks   BadgeUnlock[]
+  telemetry      TelemetryEvent[]
+}
+
+model UserWellnessConfig {
+  userId                String @id
+  sleepGoalHours        Float  @default(7.5)
+  curfewAlertTime       String @default("22:30")
+  bedtimeLimitTime      String @default("23:00")
+  shieldRigidity        String @default("balanced")
+  emergencyMinutes      Int    @default(45)
+  emergencyWeeklyQuota  Int    @default(2)
+  emergencyUsedThisWeek Int    @default(0)
+  emergencyWeekStart    String
+  dailyCapacityMinutes  Int    @default(180)
+  leisureDaysJson       String @default("[1,2,3,4,5]")
+  leisureStart          String @default("17:00")
+  leisureEnd            String @default("18:00")
+  leisureTagsJson       String @default("[\"Paseo\",\"Gym\",\"Videojuegos\"]")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Subject {
+  id       String @id
+  userId   String
+  name     String
+  colorHex String
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classBlocks ClassBlock[]
+  deliveries  Delivery[]
+
+  @@index([userId])
+}
+
+model ClassBlock {
+  id        String @id
+  userId    String
+  subjectId String
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  label     String
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([subjectId])
+}
+
+model Delivery {
+  id                     String   @id
+  userId                 String
+  subjectId              String
+  title                  String
+  inferredType           String   @default("practice")
+  dueDate                String
+  instructionsText       String   @default("")
+  attachmentMetaJson     String?
+  createdVia             String   @default("manual")
+  status                 String   @default("active")
+  completionBonusAwarded Boolean  @default(false)
+  createdAt              String
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject    Subject     @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  microTasks MicroTask[]
+
+  @@index([userId])
+  @@index([subjectId])
+}
+
+model MicroTask {
+  id               String  @id
+  deliveryId       String
+  userId           String
+  title            String
+  scheduledDate    String
+  scheduledSlot    String  @default("")
+  estimatedMinutes Int     @default(0)
+  usePomodoro      Boolean @default(false)
+  blocksCount      Int     @default(0)
+  status           String  @default("pending")
+  completedVia     String?
+  completedAt      String?
+  rationale        String?
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deliveryId])
+}
+
+model FocusSession {
+  id                     String  @id
+  userId                 String
+  microTaskId            String?
+  plannedMinutes         Int
+  actualMinutes          Int
+  completed              Boolean
+  exitInterruptionsCount Int     @default(0)
+  ambientSound           String  @default("silence")
+  startedAt              String
+  endedAt                String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SleepLog {
+  id                   String  @id
+  userId               String
+  date                 String
+  sleptHours           Float
+  respectedCurfew      Boolean
+  usedEmergency        Boolean @default(false)
+  emergencyMinutesUsed Int     @default(0)
+  xpAwarded            Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+model BadgeUnlock {
+  id         String @id
+  userId     String
+  badgeCode  String
+  unlockedAt String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeCode])
+  @@index([userId])
+}
+
+model TelemetryEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  eventType String
+  metaJson  String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType])
+}

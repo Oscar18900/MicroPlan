@@ -25,6 +25,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const activeTab = useAppStore((s) => s.activeTab);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const isOnline = useAppStore((s) => s.isOnline);
+  const backendConnected = useAppStore((s) => s.backendConnected);
   const pendingSyncCount = useAppStore((s) => s.pendingSyncCount);
   const setShowDevTools = useAppStore((s) => s.setShowDevTools);
   const activeTimer = useAppStore((s) => s.activeTimer);
@@ -45,7 +46,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               }`}
             >
               {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              {isOnline ? 'PWA Local' : 'Sin conexión'}
+              {!isOnline
+                ? 'Sin conexión'
+                : backendConnected
+                  ? 'Cloud Sync'
+                  : 'PWA Local'}
             </span>
             {pendingSyncCount > 0 ? (
               <span className="rounded-full bg-[#F2F3FF] px-2 py-0.5 text-[10px] font-medium text-[#434655]">

@@ -26,6 +26,7 @@ export interface BreakdownInput {
   dueDate: string;
   instructionsText: string;
   attachmentMeta?: AttachmentMeta;
+  attachmentFile?: File;
   config: UserWellnessConfig;
   classBlocks: ClassBlock[];
   existingMicroTasks: MicroTask[];
