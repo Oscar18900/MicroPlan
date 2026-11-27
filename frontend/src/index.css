@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+:root {
+  --bg-canvas: #faf8ff;
+  --bg-card: #ffffff;
+  --bg-subtle: #f2f3ff;
+  --bg-muted: #eaedff;
+  --border-subtle: #e5e7f3;
+
+  --text-primary: #131b2e;
+  --text-secondary: #434655;
+  --text-muted: #737686;
+
+  --brand-blue: #2563eb;
+  --brand-blue-deep: #004ac6;
+  --brand-blue-soft: #e5eeff;
+
+  --wellness-teal: #006a63;
+  --wellness-teal-soft: #e2f7f5;
+
+  --status-success: #117e3b;
+  --status-success-soft: #e6f7ec;
+  --status-warning: #b15106;
+  --status-warning-soft: #fffbeb;
+  --status-danger: #ba1a1a;
+  --status-danger-soft: #ffdad6;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: #eef1fb;
+    color: var(--text-primary);
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+    padding: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  }
+}
+
+/* Modern Web Guidance: prevent page scroll under native <dialog> without locking html/body */
+dialog:modal {
+  overscroll-behavior: contain;
+  margin: auto;
+  border: none;
+  padding: 0;
+  background: transparent;
+  max-width: min(92vw, 404px);
+  width: 100%;
+  max-height: 90dvh;
+  overflow-y: auto;
+}
+
+dialog::backdrop {
+  background: rgba(19, 27, 46, 0.56);
+  backdrop-filter: blur(4px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Modern Web Guidance: validate input after interaction */
+.mp-input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-subtle);
+  background-color: #ffffff;
+  padding: 10px 14px;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.mp-input:focus {
+  outline: none;
+  border-color: var(--brand-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.mp-input:is(:user-invalid, .user-invalid-fallback) {
+  border-color: var(--status-danger);
+  background-color: #fff6f5;
+}
+
+.mp-input:is(:user-invalid, .user-invalid-fallback) + .mp-error-msg,
+.mp-input:is(:user-invalid, .user-invalid-fallback) ~ .mp-error-msg {
+  display: block;
+}
+
+.mp-input:user-valid {
+  border-color: var(--status-success);
+}
+
+.mp-error-msg {
+  display: none;
+  color: var(--status-danger);
+  font-size: 0.8125rem;
+  margin-top: 4px;
+}
+
+/* Screen-reader live region utility */
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+.safe-bottom-pad {
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+}
