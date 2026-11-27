@@ -133,10 +133,10 @@ interface AppState {
   setLeisureConflict: (info: LeisureConflictInfo | null) => void;
 
   // Auth
+  refreshBackendHealth: () => Promise<void>;
   registerLocal: (name: string, email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   loginLocal: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   loginWithGoogleCredential: (idToken: string) => Promise<{ ok: boolean; error?: string }>;
-  loginWithGoogleLocal: (name?: string, email?: string) => Promise<void>;
   logout: () => Promise<void>;
   syncWithBackend: () => Promise<void>;
 
@@ -640,6 +640,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  refreshBackendHealth: async () => {
+    try {
+      const health = await apiHealth();
+      set({
+        backendConnected: health.ok,
+        googleClientId:
+          health.googleClientId ||
+          (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ||
+          null,
+      });
+    } catch {
+      set({ backendConnected: false });
+    }
+  },
+
   loginWithGoogleCredential: async (idToken) => {
     try {
       const { token, snapshot } = await apiGoogleLogin(idToken);
@@ -654,36 +669,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         error: err instanceof Error ? err.message : 'No pudimos iniciar sesión con Google.',
       };
     }
-  },
-
-  loginWithGoogleLocal: async (name = 'Estudiante BUAP', email = 'estudiante@correo.buap.mx') => {
-    const cleanEmail = email.trim().toLowerCase();
-    let user = await db.users.where('email').equals(cleanEmail).first();
-    if (!user) {
-      const userId = `usr_g_${Date.now().toString(36)}`;
-      user = {
-        id: userId,
-        name,
-        email: cleanEmail,
-        authProvider: 'google',
-        role: 'student',
-        career: '',
-        semester: '4°–6°',
-        xp: 0,
-        level: 1,
-        currentStreak: 0,
-        bestStreak: 0,
-        lastStreakDate: null,
-        onboardingCompleted: false,
-        createdAt: new Date().toISOString(),
-      };
-      await db.users.put(user);
-      await db.wellnessConfigs.put(defaultWellnessConfig(userId));
-      await db.activeTimer.put(defaultTimer(userId));
-    }
-    await setSetting('currentUserId', user.id);
-    const data = await reloadUserStateFromDb(user.id);
-    set({ ...data, activeTab: 'dashboard' });
   },
 
   logout: async () => {

@@ -41,10 +41,16 @@ export function AuthScreen() {
 
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const googleClientId = useAppStore((s) => s.googleClientId);
+  const refreshBackendHealth = useAppStore((s) => s.refreshBackendHealth);
   const registerLocal = useAppStore((s) => s.registerLocal);
   const loginLocal = useAppStore((s) => s.loginLocal);
   const loginWithGoogleCredential = useAppStore((s) => s.loginWithGoogleCredential);
-  const loginWithGoogleLocal = useAppStore((s) => s.loginWithGoogleLocal);
+
+  useEffect(() => {
+    if (!googleClientId) {
+      void refreshBackendHealth();
+    }
+  }, [googleClientId, refreshBackendHealth]);
 
   useEffect(() => {
     if (!googleClientId || !googleBtnRef.current) return;
@@ -65,7 +71,7 @@ export function AuthScreen() {
       window.google.accounts.id.renderButton(googleBtnRef.current, {
         theme: 'outline',
         size: 'large',
-        width: 300,
+        width: 296,
         text: mode === 'register' ? 'signup_with' : 'signin_with',
         shape: 'pill',
       });
@@ -327,43 +333,24 @@ export function AuthScreen() {
 
           {googleClientId ? (
             <div className="flex flex-col items-center gap-2">
-              <div ref={googleBtnRef} className="flex justify-center" />
+              <div ref={googleBtnRef} className="flex min-h-[44px] items-center justify-center" />
               <p className="text-center text-[10px] text-[#737686]">
-                Google OAuth verificado por tu servidor MicroPlan.
+                Acceso seguro con Google OAuth verificado por tu servidor MicroPlan.
               </p>
             </div>
           ) : (
-            <>
+            <div className="rounded-2xl border border-[#E5E7F3] bg-[#FAF8FF] px-3.5 py-2.5 text-center">
+              <p className="text-xs font-semibold text-[#434655]">
+                Conéctate al servidor para iniciar sesión con Google.
+              </p>
               <button
                 type="button"
-                onClick={() => void loginWithGoogleLocal()}
-                className="flex w-full items-center justify-center gap-2.5 rounded-2xl border border-[#E5E7F3] bg-white py-2.5 text-sm font-semibold text-[#131B2E] hover:bg-[#F2F3FF] transition"
+                onClick={() => void refreshBackendHealth()}
+                className="mt-1 text-[11px] font-bold text-[#2563EB] hover:underline"
               >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.14C3.26 21.3 7.31 24 12 24Z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.24c-.24-.72-.38-1.49-.38-2.24s.14-1.52.38-2.24V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.99-3.14Z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96Z"
-                  />
-                </svg>
-                Continuar con Google (modo local)
+                Reintentar conexión
               </button>
-              <p className="mt-2 text-center text-[10px] text-[#737686]">
-                Para activar Google OAuth real, pega tu <code>GOOGLE_CLIENT_ID</code> en{' '}
-                <code>backend/.env</code>.
-              </p>
-            </>
+            </div>
           )}
         </div>
 
