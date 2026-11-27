@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
+import { prisma } from './lib/prisma';
 import authRoutes from './routes/auth';
 import syncRoutes from './routes/sync';
 import aiRoutes from './routes/ai';
@@ -17,9 +18,26 @@ app.use(
 );
 app.use(express.json({ limit: '4mb' }));
 
-app.get('/api/health', (_req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     ok: true,
+    service: 'microplan-backend',
+    health: '/api/health',
+  });
+});
+
+app.get('/api/health', async (_req, res) => {
+  let dbOk = false;
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbOk = true;
+  } catch {
+    dbOk = false;
+  }
+
+  res.json({
+    ok: true,
+    dbOk,
     service: 'microplan-backend',
     groqConfigured: Boolean(process.env.GROQ_API_KEY),
     groqModel: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
@@ -31,6 +49,20 @@ app.use('/api/auth', authRoutes);
 app.use('/api', syncRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/telemetry', telemetryRoutes);
+
+app.use(
+  (
+    err: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction
+  ) => {
+    console.error('Unhandled backend error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Error interno del servidor.' });
+    }
+  }
+);
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`MicroPlan Backend running on http://0.0.0.0:${port}`);

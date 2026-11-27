@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: microplan-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_FALLBACK_MODEL
+        value: openai/gpt-oss-20b
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: ADMIN_EMAILS
+        value: admin@microplan.buap.mx
