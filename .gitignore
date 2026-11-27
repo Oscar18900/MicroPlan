@@ -52,6 +52,7 @@ frontend/android/build/
 frontend/android/app/build/
 frontend/android/local.properties
 *.apk
+!releases/*.apk
 *.aab
 *.keystore
 *.jks
